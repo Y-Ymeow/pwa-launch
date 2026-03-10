@@ -17,11 +17,13 @@
         "height": 800,
         "resizable": true,
         "fullscreen": false,
-        "center": true
+        "center": true,
+        "transparent": false
       }
     ],
+    "withGlobalTauri": true,
     "security": {
-      "csp": "default-src *; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline'; img-src * data: blob:; font-src *; connect-src *; frame-src *;"
+      "csp": "default-src * 'self'; script-src * 'self' 'unsafe-inline' 'unsafe-eval'; style-src * 'self' 'unsafe-inline'; img-src * 'self' data: blob:; font-src * 'self'; connect-src * 'self'; frame-src * 'self';"
     }
   },
   "bundle": {

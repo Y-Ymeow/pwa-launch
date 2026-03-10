@@ -7,10 +7,18 @@
   ],
   "permissions": [
     "core:default",
+    "core:webview:allow-create-webview",
+    "core:webview:allow-webview-close",
+    "core:webview:allow-webview-execute-javascript",
+    "core:window:allow-create",
+    "core:window:allow-close",
+    "core:window:allow-show",
     "shell:default",
+    "shell:allow-open",
     "fs:default",
     "fs:allow-app-read-recursive",
     "fs:allow-app-write-recursive",
+    "fs:allow-app-meta-recursive",
     "http:default"
   ]
 }

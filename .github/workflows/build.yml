@@ -127,6 +127,19 @@ jobs:
             bunx tauri android init || true
           fi
 
+      # 添加 Android INTERNET 权限，修复 WebView 黑屏问题
+      - name: Fix Android permissions
+        run: |
+          MANIFEST="gen/android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            echo "Before fix:"
+            cat "$MANIFEST"
+            # 在 <manifest> 标签后添加权限
+            sed -i '/<manifest/a\    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$MANIFEST"
+            echo "After fix:"
+            cat "$MANIFEST"
+          fi
+
       # Debug 构建带自动签名，可正常安装
       - name: Build Android Debug APK (arm64 only)
         run: |
