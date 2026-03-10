@@ -12,9 +12,23 @@ use tokio::sync::RwLock;
 use std::collections::HashMap;
 
 pub fn run() {
-    #[cfg(target_os = "android")]
-    env_logger::init();
-    #[cfg(not(target_os = "android"))]
+    // 禁用 GPU/硬件加速以兼容更多设备
+    std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+    std::env::set_var("WEBKIT_FORCE_SOFTWARE_RENDERING", "1");
+    #[cfg(target_os = "linux")]
+    {
+        std::env::set_var("GDK_BACKEND", "x11");
+        std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::env::set_var("WEBVIEW2_SOFTWARE_RENDERER", "1");
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::env::set_var("WEBKIT_DISABLE_WEB_PROCESS_SIDE_DISPLAY", "1");
+    }
+
     env_logger::init();
 
     tauri::Builder::default()
