@@ -133,7 +133,7 @@ jobs:
       # 注意：tauri android build 默认就是 release 模式
       - name: Build Android Release APK (arm64 only)
         run: |
-          bunx tauri android build --target aarch64-linux-android
+          bunx tauri android build --target aarch64
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
           NODE_OPTIONS: "--max-old-space-size=4096"
