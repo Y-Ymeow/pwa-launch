@@ -5,6 +5,10 @@ description = "PWA 安装容器 - 跨平台应用容器，支持 PC 和移动端
 authors = ["you"]
 edition = "2021"
 
+[lib]
+name = "pwa_container_lib"
+crate-type = ["lib", "cdylib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
