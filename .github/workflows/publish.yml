@@ -87,7 +87,8 @@ jobs:
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android.keystore
 
       - name: Build Android APK
-        uses: tauri-apps/tauri-action@v0
+        run: |
+          bunx tauri android build --target aarch64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Android 签名配置
@@ -95,12 +96,9 @@ jobs:
           TAURI_ANDROID_SIGNING_KEY_ALIAS: upload
           TAURI_ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           TAURI_ANDROID_SIGNING_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
         with:
-          mobile: android
-          tagName: app-v__VERSION__
-          releaseName: 'PWA Container v__VERSION__'
-          releaseBody: 'See the assets to download this version.'
-          releaseDraft: true
-          prerelease: false
-          args: '--target aarch64'
-          uploadWorkflowArtifacts: true
+          name: android-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
