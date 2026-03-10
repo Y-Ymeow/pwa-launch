@@ -11,11 +11,6 @@ interface AppInfo {
   display_mode: string;
 }
 
-interface RunningWindow {
-  windowId: string;
-  appId: string;
-}
-
 interface CommandResponse<T> {
   success: boolean;
   data?: T;
@@ -109,7 +104,7 @@ function App() {
     e.stopPropagation();
     try {
       const response = await invoke<CommandResponse<boolean>>('close_pwa_window', { windowId });
-      if (response.success) {
+      if (response.success && response.data) {
         loadRunningWindows();
       }
     } catch (error) {
@@ -123,7 +118,7 @@ function App() {
 
     try {
       const response = await invoke<CommandResponse<boolean>>('uninstall_pwa', { appId });
-      if (response.success) {
+      if (response.success && response.data) {
         showMessage('success', '应用已卸载');
         loadApps();
         if (selectedApp?.id === appId) {
@@ -141,7 +136,7 @@ function App() {
 
     try {
       const response = await invoke<CommandResponse<number>>('clear_data', { appId });
-      if (response.success) {
+      if (response.success && response.data) {
         const size = (response.data / 1024).toFixed(2);
         showMessage('success', `已清除 ${size} KB 数据`);
       }
