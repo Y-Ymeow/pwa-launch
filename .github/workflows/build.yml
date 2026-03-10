@@ -142,7 +142,5 @@ jobs:
         with:
           name: android-debug-apk
           path: |
-            target/aarch64-linux-android/debug/*.apk
-            target/armv7-linux-androideabi/debug/*.apk
-            target/x86_64-linux-android/debug/*.apk
-            target/i686-linux-android/debug/*.apk
+            gen/android/app/build/outputs/apk/**/*.apk
+            gen/android/app/build/outputs/bundle/**/*.aab
