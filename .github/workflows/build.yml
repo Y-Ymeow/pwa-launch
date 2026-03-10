@@ -67,7 +67,7 @@ jobs:
           name: linux-appimage
           path: target/release/bundle/appimage/*.AppImage
 
-  # Android 构建 - Debug 版本（不需要 keystore）
+  # Android 构建 - Release 版本（使用调试签名，无需 keystore）
   build-android:
     runs-on: ubuntu-latest
     steps:
@@ -125,22 +125,24 @@ jobs:
 
       - name: Initialize Android project
         run: |
-          # 如果 android 目录不存在，先初始化
           if [ ! -d "gen/android" ]; then
             bunx tauri android init || true
           fi
 
-      - name: Build Android Debug APK
+      # 只构建 arm64 架构（覆盖 95%+ 设备），体积最小
+      - name: Build Android Release APK (arm64 only)
         run: |
-          bunx tauri android build --debug
+          bunx tauri android build --release --target aarch64-linux-android
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
           NODE_OPTIONS: "--max-old-space-size=4096"
+          # 使用调试签名，无需配置 keystore
+          Tauri_ANDROID_SIGNING_ENABLED: "false"
 
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
-          name: android-debug-apk
+          name: android-release-apk
           path: |
             gen/android/app/build/outputs/apk/**/*.apk
             gen/android/app/build/outputs/bundle/**/*.aab
