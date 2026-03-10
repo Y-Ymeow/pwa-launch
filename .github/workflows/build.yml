@@ -123,6 +123,13 @@ jobs:
       - name: Install Node dependencies
         run: bun install --frozen-lockfile
 
+      - name: Initialize Android project
+        run: |
+          # 如果 android 目录不存在，先初始化
+          if [ ! -d "gen/android" ]; then
+            bunx tauri android init || true
+          fi
+
       - name: Build Android Debug APK
         run: |
           bunx tauri android build --debug
