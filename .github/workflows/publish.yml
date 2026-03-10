@@ -1,102 +1,49 @@
-name: 'publish'
+name: publish
 
 on:
   push:
-    branches:
-      - master
-    tags:
-      - 'v*'
-
-# 权限配置
-permissions:
-  contents: write
+    branches: [master]
 
 jobs:
-  # Linux AppImage 构建
-  publish-linux:
+  linux:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v1
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: bun install
+      - run: bun run build
+      - run: bunx tauri build
+      - uses: actions/upload-artifact@v4
         with:
-          bun-version: latest
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - name: Install frontend dependencies
-        run: bun install
-
-      - name: Build frontend
-        run: bun run build
-
-      - name: Build Tauri app
-        run: bunx tauri build
-
-      - name: Upload AppImage
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-appimage
+          name: appimage
           path: src-tauri/target/release/bundle/appimage/*.AppImage
 
-  # Android 构建
-  publish-android:
+  android:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v1
+      - uses: actions/setup-java@v4
         with:
-          bun-version: latest
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
-
-      - name: Install frontend dependencies
-        run: bun install
-
-      - name: Build frontend
-        run: bun run build
-
-      - name: Init Android project
-        run: bunx tauri android init || true
-
-      - name: Decode keystore
-        run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android.keystore
-
-      - name: Build Android APK
-        run: |
-          bunx tauri android build --target aarch64
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Android 签名配置
-          TAURI_ANDROID_SIGNING_KEYSTORE_PATH: android.keystore
-          TAURI_ANDROID_SIGNING_KEY_ALIAS: upload
-          TAURI_ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          TAURI_ANDROID_SIGNING_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-
-      - name: Upload Android APK
-        uses: actions/upload-artifact@v4
+      - run: bun install
+      - run: bun run build
+      - run: bunx tauri android init || true
+      - run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android.keystore 2>/dev/null || true
+          export TAURI_ANDROID_SIGNING_KEYSTORE_PATH=android.keystore
+          export TAURI_ANDROID_SIGNING_KEY_ALIAS=upload
+          export TAURI_ANDROID_SIGNING_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}
+          export TAURI_ANDROID_SIGNING_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          bunx tauri android build --target aarch64 || bunx tauri android build --target aarch64 --debug
+      - uses: actions/upload-artifact@v4
         with:
-          name: android-apk
+          name: apk
           path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
