@@ -46,6 +46,4 @@ opt-level = "s"      # 优化二进制大小
 panic = "abort"      # 禁用 panic 处理
 strip = true         # 移除所有符号
 
-# 使用 sccache 加速编译
-[build]
-rustc-wrapper = "sccache"
+
