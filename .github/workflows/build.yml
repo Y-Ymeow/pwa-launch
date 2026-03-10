@@ -127,11 +127,10 @@ jobs:
             bunx tauri android init || true
           fi
 
-      # 只构建 arm64 架构（覆盖 95%+ 设备），体积最小
-      # 注意：tauri android build 默认就是 release 模式
-      - name: Build Android Release APK (arm64 only)
+      # Debug 构建带自动签名，可正常安装
+      - name: Build Android Debug APK (arm64 only)
         run: |
-          bunx tauri android build --target aarch64
+          bunx tauri android build --debug --target aarch64
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
           NODE_OPTIONS: "--max-old-space-size=4096"
@@ -139,7 +138,7 @@ jobs:
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
-          name: android-release-apk
+          name: android-debug-apk
           path: |
             gen/android/app/build/outputs/apk/**/*.apk
             gen/android/app/build/outputs/bundle/**/*.aab
