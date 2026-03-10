@@ -1,0 +1,12 @@
+{
+  "tauri": {
+    "bundle": {
+      "icon": [
+        "png/icon_256x256.png",
+        "png/icon_128x128.png",
+        "png/icon_32x32.png",
+        "png/icon_16x16.png"
+      ]
+    }
+  }
+}

@@ -1,0 +1,67 @@
+# Linux 和 Android 构建工作流
+name: Build Linux & Android
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  # Linux 构建 - 只构建 AppImage
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Linux (Tauri Action)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --no-bundle deb
+
+      - name: Upload Linux AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: target/release/bundle/appimage/*.AppImage
+
+  # Android 构建 - Debug 版本（不需要 keystore）
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Rust targets
+        run: rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build Android Debug APK
+        run: |
+          cargo tauri android build --debug
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: |
+            target/aarch64-linux-android/debug/*.apk
+            target/armv7-linux-androideabi/debug/*.apk
+            target/x86_64-linux-android/debug/*.apk
+            target/i686-linux-android/debug/*.apk

@@ -1,0 +1,64 @@
+# Rust
+/target/
+**/target/
+*.pdb
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+dist/
+
+# Tauri
+src-tauri/target/
+**/src-tauri/target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+*.AppImage
+*.deb
+*.rpm
+*.dmg
+*.exe
+*.msi
+*.apk
+*.ipa
+
+# Android
+**/android/app/build/
+**/android/.gradle/
+**/android/.idea/
+**/android/local.properties
+**/android/**/*.iml
+**/android/build/
+
+# iOS
+**/ios/DerivedData/
+**/ios/*.xcworkspace/
+**/ios/*.xcodeproj/xcuserdata/
+
+# Test
+coverage/
+*.gcno
+*.gcda
+
+# Temporary files
+tmp/
+temp/
+*.tmp
