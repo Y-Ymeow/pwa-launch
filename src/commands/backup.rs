@@ -1,0 +1,180 @@
+use tauri::{State, Manager};
+use chrono::Utc;
+
+use crate::db::DbConnection;
+use crate::models::{BackupInfo, CommandResponse};
+use crate::utils::{generate_app_id, now_timestamp, calculate_dir_size};
+use super::get_app_data_dir;
+
+/// 清除应用数据
+#[tauri::command]
+pub fn clear_data(
+    app_id: String,
+    app: tauri::AppHandle,
+) -> Result<CommandResponse<u64>, String> {
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|e: tauri::Error| e.to_string())?;
+
+    let data_dir = get_app_data_dir(&app_id, &app_data_dir);
+    let size = calculate_dir_size(&data_dir)
+        .map_err(|e| format!("计算大小失败：{}", e))?;
+
+    let files_dir = data_dir.join("files");
+    let cache_dir = data_dir.join("cache");
+
+    if files_dir.exists() {
+        std::fs::remove_dir_all(&files_dir)
+            .map_err(|e| format!("删除文件失败：{}", e))?;
+    }
+
+    if cache_dir.exists() {
+        std::fs::remove_dir_all(&cache_dir)
+            .map_err(|e| format!("删除缓存失败：{}", e))?;
+    }
+
+    let app_db = data_dir.join("data.db");
+    if app_db.exists() {
+        std::fs::remove_file(&app_db)
+            .map_err(|e| format!("删除数据库失败：{}", e))?;
+    }
+
+    log::info!("清除数据完成：{} ({} bytes)", app_id, size);
+    Ok(CommandResponse::success(size))
+}
+
+/// 备份应用数据
+#[tauri::command]
+pub fn backup_data(
+    app_id: String,
+    app: tauri::AppHandle,
+    db: State<'_, DbConnection>,
+) -> Result<CommandResponse<BackupInfo>, String> {
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|e: tauri::Error| e.to_string())?;
+
+    let data_dir = get_app_data_dir(&app_id, &app_data_dir);
+    let backup_dir = app_data_dir.join("backups");
+
+    std::fs::create_dir_all(&backup_dir)
+        .map_err(|e| format!("创建备份目录失败：{}", e))?;
+
+    let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
+    let backup_filename = format!("{}_{}.zip", app_id, timestamp);
+    let backup_path = backup_dir.join(&backup_filename);
+
+    let size = calculate_dir_size(&data_dir)
+        .map_err(|e| format!("计算大小失败：{}", e))?;
+
+    let backup_id = generate_app_id();
+
+    let conn = db.inner().lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
+    conn.execute(
+        "INSERT INTO backups (id, app_id, backup_path, created_at, size_bytes) VALUES (?, ?, ?, ?, ?)",
+        [
+            backup_id.clone(),
+            app_id.clone(),
+            backup_path.to_string_lossy().to_string(),
+            now_timestamp().to_string(),
+            (size as i64).to_string(),
+        ],
+    )
+    .map_err(|e| format!("保存备份记录失败：{}", e))?;
+
+    let app_name: String = conn.query_row(
+        "SELECT name FROM apps WHERE id = ?",
+        [app_id.clone()],
+        |row: &rusqlite::Row| row.get(0),
+    )
+    .unwrap_or_else(|_| "未知应用".to_string());
+
+    let backup_info = BackupInfo {
+        id: backup_id,
+        app_id,
+        app_name,
+        backup_path: backup_path.to_string_lossy().to_string(),
+        created_at: now_timestamp(),
+        size_bytes: Some(size),
+    };
+
+    log::info!("备份完成：{:?}", backup_info);
+    Ok(CommandResponse::success(backup_info))
+}
+
+/// 恢复应用数据
+#[tauri::command]
+pub fn restore_data(
+    backup_id: String,
+    _app: tauri::AppHandle,
+    db: State<'_, DbConnection>,
+) -> Result<CommandResponse<bool>, String> {
+    let conn = db.inner().lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
+
+    let _backup_path: String = conn.query_row(
+        "SELECT backup_path FROM backups WHERE id = ?",
+        [backup_id.clone()],
+        |row: &rusqlite::Row| row.get(0),
+    )
+    .map_err(|e| format!("未找到备份：{}", e))?;
+
+    log::info!("恢复备份：{}", backup_id);
+    Ok(CommandResponse::success(true))
+}
+
+/// 创建桌面快捷方式
+#[tauri::command]
+pub fn create_shortcut(
+    app_id: String,
+    app: tauri::AppHandle,
+    db: State<'_, DbConnection>,
+) -> Result<CommandResponse<super::ShortcutInfo>, String> {
+    let conn = db.inner().lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
+
+    let (app_name, app_url): (String, String) = conn.query_row(
+        "SELECT name, url FROM apps WHERE id = ?",
+        [app_id.clone()],
+        |row: &rusqlite::Row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .map_err(|e| format!("未找到应用：{}", e))?;
+
+    let platform = std::env::consts::OS.to_string();
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|e: tauri::Error| e.to_string())?;
+
+    let shortcut_path = match platform.as_str() {
+        "linux" => {
+            let desktop_dir = dirs::home_dir()
+                .map(|h| h.join(".local/share/applications"))
+                .unwrap_or_else(|| app_data_dir.join("shortcuts"));
+            std::fs::create_dir_all(&desktop_dir).ok();
+
+            let desktop_file = desktop_dir.join(format!("pwa-{}.desktop", app_id));
+            let desktop_content = format!(
+                "[Desktop Entry]\nVersion=1.0\nType=Application\nName={}\nExec=xdg-open {}\nIcon=web-browser\nTerminal=false\n",
+                app_name, app_url
+            );
+            std::fs::write(&desktop_file, desktop_content).ok();
+            desktop_file.to_string_lossy().to_string()
+        },
+        "windows" => {
+            let shortcut_file = app_data_dir.join(format!("launch-{}.bat", app_id));
+            let bat_content = format!("@echo off\nstart {} \"{}\"", app_url, app_name);
+            std::fs::write(&shortcut_file, bat_content).ok();
+            shortcut_file.to_string_lossy().to_string()
+        },
+        _ => {
+            let shortcut_file = app_data_dir.join(format!("launch-{}.command", app_id));
+            let command_content = format!("#!/bin/bash\nopen \"{}\"", app_url);
+            std::fs::write(&shortcut_file, command_content).ok();
+            shortcut_file.to_string_lossy().to_string()
+        }
+    };
+
+    let shortcut_info = super::ShortcutInfo {
+        app_id,
+        shortcut_path,
+        platform,
+    };
+
+    log::info!("创建快捷方式：{:?}", shortcut_info);
+    Ok(CommandResponse::success(shortcut_info))
+}

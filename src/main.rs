@@ -22,6 +22,7 @@ fn main() {
         .plugin(fs_plugin())
         .plugin(http_plugin())
         .setup(|app| {
+
             // 初始化应用数据目录
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
@@ -33,11 +34,11 @@ fn main() {
             let db_path = app_data_dir.join("pwa_container.db");
             let conn = rusqlite::Connection::open(&db_path)?;
             app.manage(std::sync::Mutex::new(conn));
-            
+
             // 注册 Cookie 存储 - 全局共享
             let cookie_store: commands::CookieStore = Arc::new(RwLock::new(HashMap::new()));
             app.manage(cookie_store);
-            
+
             // 注册代理配置
             let proxy_config: commands::ProxyConfig = Arc::new(RwLock::new(None));
             app.manage(proxy_config);
