@@ -130,14 +130,13 @@ jobs:
           fi
 
       # 只构建 arm64 架构（覆盖 95%+ 设备），体积最小
+      # 注意：tauri android build 默认就是 release 模式
       - name: Build Android Release APK (arm64 only)
         run: |
-          bunx tauri android build --release --target aarch64-linux-android
+          bunx tauri android build --target aarch64-linux-android
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
           NODE_OPTIONS: "--max-old-space-size=4096"
-          # 使用调试签名，无需配置 keystore
-          Tauri_ANDROID_SIGNING_ENABLED: "false"
 
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
