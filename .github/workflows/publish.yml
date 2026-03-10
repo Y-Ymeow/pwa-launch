@@ -36,6 +36,15 @@ jobs:
       - run: bun install
       - run: bun run build
       - run: bunx tauri android init || true
+
+      - name: Disable hardware acceleration
+        run: |
+          MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            sed -i 's/<application/<application android:hardwareAccelerated="false"/' "$MANIFEST"
+            cat "$MANIFEST"
+          fi
+
       - run: |
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android.keystore 2>/dev/null || true
           export TAURI_ANDROID_SIGNING_KEYSTORE_PATH=android.keystore
