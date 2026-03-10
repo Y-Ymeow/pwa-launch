@@ -55,6 +55,9 @@ jobs:
       - name: Install Node dependencies
         run: bun install --frozen-lockfile
 
+      - name: Build frontend
+        run: bun run build
+
       - name: Build Linux App
         run: |
           bunx tauri build
@@ -120,6 +123,9 @@ jobs:
 
       - name: Install Node dependencies
         run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        run: bun run build
 
       - name: Initialize Android project
         run: |
