@@ -38,15 +38,13 @@ jobs:
         run: bun run build
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bunx tauri build
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
         with:
-          tagName: app-v__VERSION__
-          releaseName: 'PWA Container v__VERSION__'
-          releaseBody: 'See the assets to download this version.'
-          releaseDraft: true
-          prerelease: false
+          name: linux-appimage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
 
   # Android 构建
   publish-android:
