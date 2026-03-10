@@ -58,6 +58,15 @@ jobs:
       - name: Build frontend
         run: bun run build
 
+      - name: Show frontend dist
+        run: |
+          pwd
+          ls -lah
+          echo "dist:"
+          ls -lah dist
+          echo "index.html:"
+          cat dist/index.html
+
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
@@ -71,7 +80,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-appimage
-          path: target/release/bundle/appimage/*.AppImage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
 
   # Android 构建 - Release 版本（使用调试签名，无需 keystore）
   build-android:
@@ -172,5 +181,5 @@ jobs:
         with:
           name: android-debug-apk
           path: |
-            gen/android/app/build/outputs/apk/**/*.apk
-            gen/android/app/build/outputs/bundle/**/*.aab
+            src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+            src-tauri/gen/android/app/build/outputs/bundle/**/*.aab
