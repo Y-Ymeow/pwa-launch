@@ -25,7 +25,6 @@ pub async fn proxy_fetch(
     drop(cookies);
 
     let mut client_builder = reqwest::Client::builder()
-        .cookie_store(true)
         .default_headers({
             let mut headers = reqwest::header::HeaderMap::new();
             if !cookie_header.is_empty() {
