@@ -3,7 +3,9 @@ name: 'publish'
 on:
   push:
     branches:
-      - release
+      - master
+    tags:
+      - 'v*'
 
 # 权限配置
 permissions:
