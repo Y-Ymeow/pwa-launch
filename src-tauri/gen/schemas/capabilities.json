@@ -1,1 +1,0 @@
-{"default":{"identifier":"default","description":"Default capability for the app","local":true,"windows":["*"],"permissions":["core:default","core:webview:default","core:window:default","shell:default","fs:default","http:default"]}}

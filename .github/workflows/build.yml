@@ -4,7 +4,7 @@ name: Build Linux & Android
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
     branches:
       - master
   workflow_dispatch:
@@ -25,8 +25,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v1
@@ -58,6 +58,9 @@ jobs:
       - name: Build frontend
         run: bun run build
 
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
       - name: Build Linux App
         run: |
           bunx tauri build
@@ -79,8 +82,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v1
@@ -90,8 +93,8 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: "temurin"
+          java-version: "17"
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -127,6 +130,13 @@ jobs:
       - name: Build frontend
         run: bun run build
 
+      - name: Show frontend dist
+        run: |
+          pwd
+          ls -lah
+          echo "dist:"
+          ls -lah dist
+
       - name: Initialize Android project
         run: |
           if [ ! -d "gen/android" ]; then
@@ -145,6 +155,9 @@ jobs:
             echo "After fix:"
             cat "$MANIFEST"
           fi
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
 
       # Debug 构建带自动签名，可正常安装
       - name: Build Android Debug APK (arm64 only)
