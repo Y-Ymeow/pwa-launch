@@ -69,6 +69,8 @@ jobs:
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
 
       - name: Build Linux App
         run: |
@@ -167,6 +169,8 @@ jobs:
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
 
       # Debug 构建带自动签名，可正常安装
       - name: Build Android Debug APK (arm64 only)
