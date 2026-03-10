@@ -34,12 +34,9 @@ cookie = "0.18"
 urlencoding = "2"
 http = "1"
 
-# Debug 模式优化 - 减小体积同时保留调试能力
+# Debug 模式 - 快速编译，仅 strip 减小体积
 [profile.dev]
-opt-level = 2        # 适度优化
-strip = true         # 移除调试符号，大幅减小体积
-lto = "thin"         # 轻量级链接时优化
-debug = false        # 禁用调试信息
+strip = true         # 仅移除调试符号，大幅减小体积
 
 # Release 模式优化 - 最小体积
 [profile.release]
@@ -48,3 +45,7 @@ lto = true           # 完整链接时优化
 opt-level = "s"      # 优化二进制大小
 panic = "abort"      # 禁用 panic 处理
 strip = true         # 移除所有符号
+
+# 使用 sccache 加速编译
+[build]
+rustc-wrapper = "sccache"
