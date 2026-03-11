@@ -12,6 +12,14 @@ use tokio::sync::RwLock;
 use std::collections::HashMap;
 
 pub fn run() {
+    // 禁用 GPU/EGL 加速（解决兼容性问题）
+    #[cfg(target_os = "linux")]
+    {
+        std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+        std::env::set_var("WEBKIT_FORCE_SOFTWARE_RENDERING", "1");
+        std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+    }
+
     // 日志配置
     std::env::set_var("RUST_LOG", "debug");
     env_logger::Builder::from_default_env()
