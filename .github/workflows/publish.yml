@@ -67,11 +67,20 @@ jobs:
       - name: Build Android Release
         id: build_release
         run: |
+          # 解码 keystore
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android.keystore
-          export TAURI_ANDROID_SIGNING_KEYSTORE_PATH=android.keystore
-          export TAURI_ANDROID_SIGNING_KEY_ALIAS=upload
-          export TAURI_ANDROID_SIGNING_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}
-          export TAURI_ANDROID_SIGNING_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ls -la android.keystore
+          
+          # 设置签名环境变量
+          export TAURI_ANDROID_SIGNING_KEYSTORE_PATH="$(pwd)/android.keystore"
+          export TAURI_ANDROID_SIGNING_KEY_ALIAS="upload"
+          export TAURI_ANDROID_SIGNING_KEY_PASSWORD="${{ secrets.ANDROID_KEY_PASSWORD }}"
+          export TAURI_ANDROID_SIGNING_KEYSTORE_PASSWORD="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
+          
+          echo "签名配置:"
+          echo "  KEYSTORE_PATH: $TAURI_ANDROID_SIGNING_KEYSTORE_PATH"
+          echo "  KEY_ALIAS: $TAURI_ANDROID_SIGNING_KEY_ALIAS"
+          
           bunx tauri android build --target aarch64
         continue-on-error: true
 
