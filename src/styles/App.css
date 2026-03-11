@@ -334,24 +334,50 @@
 /* 悬浮切换按钮 - 贴边可拖动 */
 .floating-switcher {
   position: fixed;
-  right: 0;
+  right: 8px; /* 添加安全边距 */
   top: 50%;
   transform: translateY(-50%);
-  z-index: 200;
+  z-index: 10000; /* 提高 z-index 确保在最上层 */
   transition: transform 0.3s ease;
 }
 
 .floating-switcher.left {
   right: auto;
-  left: 0;
+  left: 8px; /* 添加安全边距 */
 }
 
 .floating-switcher.hidden {
-  transform: translateY(-50%) translateX(calc(100% - 12px));
+  transform: translateY(-50%) translateX(calc(100% + 8px)); /* 调整 hidden 位置 */
 }
 
 .floating-switcher.left.hidden {
-  transform: translateY(-50%) translateX(calc(-100% + 12px));
+  transform: translateY(-50%) translateX(calc(-100% - 8px)); /* 调整 hidden 位置 */
+}
+
+/* 移动端适配 */
+@media (max-width: 640px) {
+  .floating-switcher {
+    right: 4px;
+  }
+  
+  .floating-switcher.left {
+    left: 4px;
+  }
+  
+  .fab {
+    width: 44px; /* 稍小一点 */
+    height: 72px;
+    font-size: 0.7rem;
+  }
+  
+  .switcher-panel {
+    width: 280px; /* 面板也小一点 */
+    right: 52px;
+  }
+  
+  .floating-switcher.left .switcher-panel {
+    left: 52px;
+  }
 }
 
 .fab {
@@ -508,18 +534,35 @@
 }
 
 .running-item.active {
-  background: linear-gradient(90deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2));
-  border-color: #667eea;
+  background: linear-gradient(90deg, rgba(102, 126, 234, 0.6), rgba(118, 75, 162, 0.6));
+  border-color: #89b4fa;
+}
+
+.running-item.active .item-name {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.running-item.active .item-status {
+  color: #bac2de;
 }
 
 .running-item.snapshot {
-  opacity: 0.6;
-  background: #181825;
+  opacity: 0.8;
+  background: #313244;
 }
 
 .running-item.snapshot:hover {
-  opacity: 0.9;
-  background: #1e1e2e;
+  opacity: 1;
+  background: #45475a;
+}
+
+.running-item.snapshot .item-name {
+  color: #a6adc8;
+}
+
+.running-item.snapshot .item-status {
+  color: #9399b2;
 }
 
 .item-icon {
@@ -560,6 +603,37 @@
   font-size: 0.75rem;
   color: #6c7086;
   margin-top: 2px;
+}
+
+/* 操作按钮容器 */
+.item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+/* 刷新按钮 */
+.btn-refresh-item {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: #313244;
+  color: #74c7ec;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-refresh-item:hover {
+  background: #74c7ec;
+  color: #1e1e2e;
 }
 
 .btn-close-item {
@@ -610,7 +684,25 @@
   }
   
   .switcher-panel {
-    width: 280px;
-    right: -70px;
+    width: calc(100vw - 80px);
+    max-width: 300px;
+    right: 56px;
+  }
+
+  .floating-switcher.left .switcher-panel {
+    left: 56px;
+    right: auto;
+  }
+
+  /* 移动端按钮大小调整 */
+  .item-actions {
+    gap: 0.375rem;
+  }
+
+  .btn-refresh-item,
+  .btn-close-item {
+    width: 26px;
+    height: 26px;
+    font-size: 0.8rem;
   }
 }

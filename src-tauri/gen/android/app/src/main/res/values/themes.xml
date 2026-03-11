@@ -1,6 +1,15 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.pwa_container" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <!-- 状态栏透明 -->
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:windowTranslucentNavigation">false</item>
+        <!-- 全屏显示 -->
+        <item name="android:windowFullscreen">false</item>
+        <!-- 刘海屏适配 - 内容不延伸到刘海区域 -->
+        <item name="android:windowLayoutInDisplayCutoutMode">default</item>
+        <!-- 状态栏颜色 -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
     </style>
 </resources>

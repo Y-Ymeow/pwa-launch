@@ -361,6 +361,20 @@ function App() {
     }
   };
 
+  // 刷新PWA
+  const refreshPwa = (appId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    
+    const iframe = iframesRef.current[appId];
+    if (iframe) {
+      // 记录当前URL
+      const currentUrl = iframe.src;
+      // 重新加载iframe
+      iframe.src = currentUrl;
+      showMessage('success', '页面已刷新');
+    }
+  };
+
   // 卸载应用
   const handleUninstall = async (appId: string) => {
     if (!confirm('确定要卸载这个应用吗？')) return;
@@ -580,12 +594,22 @@ function App() {
                         {activePwaId === pwa.appId ? '当前' : '后台'}
                       </span>
                     </div>
-                    <button 
-                      className="btn-close-item"
-                      onClick={(e) => closePwa(pwa.appId, e)}
-                    >
-                      ✕
-                    </button>
+                    <div className="item-actions">
+                      <button
+                        className="btn-refresh-item"
+                        onClick={(e) => refreshPwa(pwa.appId, e)}
+                        title="刷新页面"
+                      >
+                        ↻
+                      </button>
+                      <button
+                        className="btn-close-item"
+                        onClick={(e) => closePwa(pwa.appId, e)}
+                        title="关闭应用"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
                 ))}
                 
