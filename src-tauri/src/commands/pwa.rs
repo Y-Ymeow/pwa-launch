@@ -140,12 +140,21 @@ pub fn launch_app(
     let user_data_dir = get_app_data_dir(&app_id, &app_data_dir);
     std::fs::create_dir_all(&user_data_dir).ok();
 
+    #[cfg(not(mobile))]
+    let window = {
+        let mut builder = tauri::window::WindowBuilder::new(&app, &window_id)
+            .title(&app_name)
+            .inner_size(width as f64, height as f64)
+            .resizable(resizable)
+            .decorations(decorations);
+        if fullscreen {
+            builder = builder.fullscreen(fullscreen);
+        }
+        builder.build().map_err(|e| format!("创建窗口失败：{}", e))?
+    };
+
+    #[cfg(mobile)]
     let window = tauri::window::WindowBuilder::new(&app, &window_id)
-        .title(&app_name)
-        .inner_size(width as f64, height as f64)
-        .resizable(resizable)
-        .decorations(decorations)
-        .fullscreen(fullscreen)
         .build()
         .map_err(|e| format!("创建窗口失败：{}", e))?;
 
@@ -259,7 +268,13 @@ pub fn close_pwa_window(
     app: tauri::AppHandle,
 ) -> Result<CommandResponse<bool>, String> {
     if let Some(window) = app.get_webview_window(&window_id) {
-        window.close().map_err(|e| format!("关闭窗口失败：{}", e))?;
+        #[cfg(not(mobile))]
+        window.destroy().map_err(|e| format!("关闭窗口失败：{}", e))?;
+        #[cfg(mobile)]
+        {
+            // 移动端关闭窗口的处理方式不同
+            let _ = window;
+        }
         Ok(CommandResponse::success(true))
     } else {
         Ok(CommandResponse::success(false))
