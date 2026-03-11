@@ -12,26 +12,8 @@ use tokio::sync::RwLock;
 use std::collections::HashMap;
 
 pub fn run() {
-    // 禁用 GPU/硬件加速以兼容更多设备
-    std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
-    std::env::set_var("WEBKIT_FORCE_SOFTWARE_RENDERING", "1");
-    #[cfg(target_os = "linux")]
-    {
-        std::env::set_var("GDK_BACKEND", "x11");
-        std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
-    }
-    #[cfg(target_os = "windows")]
-    {
-        std::env::set_var("WEBVIEW2_SOFTWARE_RENDERER", "1");
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::env::set_var("WEBKIT_DISABLE_WEB_PROCESS_SIDE_DISPLAY", "1");
-    }
-
-    // 强制日志输出到 stderr
+    // 日志配置
     std::env::set_var("RUST_LOG", "debug");
-    std::env::set_var("RUST_BACKTRACE", "1");
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Debug)
         .init();
@@ -69,6 +51,18 @@ pub fn run() {
             app.manage(proxy_config);
 
             log::info!("应用初始化完成!");
+
+            // 检查主窗口
+            if let Some(window) = app.get_webview_window("main") {
+                log::info!("主窗口已创建，标签: main");
+                // 获取窗口信息
+                if let Ok(title) = window.title() {
+                    log::info!("窗口标题: {}", title);
+                }
+            } else {
+                log::warn!("主窗口未找到!");
+            }
+
             Ok(())
         })
         .on_page_load(|_webview, payload| {

@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "PWA Container",
         "width": 1200,
         "height": 800,
@@ -19,7 +20,9 @@
         "fullscreen": false,
         "center": true,
         "transparent": false,
-        "devtools": true
+        "devtools": true,
+        "visible": true,
+        "useHttpsScheme": true
       }
     ],
     "security": {
