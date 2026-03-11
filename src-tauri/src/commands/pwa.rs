@@ -217,9 +217,6 @@ pub fn launch_app(
 
         // 创建 PWA WebView（全屏覆盖）
         let webview_id = format!("pwa_{}", app_id);
-        let webview_url = tauri::WebviewUrl::External(
-            app_url.parse().map_err(|e| format!("URL 解析失败：{}", e))?
-        );
 
         let init_script = format!(r#"
             window.__PWA_APP_ID__ = '{app_id}';
@@ -261,8 +258,10 @@ pub fn launch_app(
             }};
         "#);
 
-        // 使用 navigate 加载 URL 到新的 webview
-        main_window.navigate(webview_url)
+        // 使用 navigate 加载 URL
+        let url = url::Url::parse(&app_url)
+            .map_err(|e| format!("URL 解析失败：{}", e))?;
+        main_window.navigate(url)
             .map_err(|e| format!("导航到 PWA 失败：{}", e))?;
 
         // 注入脚本
@@ -338,7 +337,9 @@ pub fn close_pwa_window(
         // 移动端：返回主界面
         if let Some(main_window) = app.get_webview_window("main") {
             // 重新加载主页面
-            main_window.navigate(tauri::WebviewUrl::App("index.html".into()))
+            let main_url = url::Url::parse("tauri://localhost/index.html")
+                .unwrap_or_else(|_| url::Url::parse("http://localhost").unwrap());
+            main_window.navigate(main_url)
                 .map_err(|e| format!("返回主界面失败：{}", e))?;
             Ok(CommandResponse::success(true))
         } else {
