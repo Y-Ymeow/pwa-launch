@@ -15,6 +15,32 @@ jobs:
       - run: bun install
       - run: bun run build
       - run: bunx tauri build
+
+      - name: Fix AppImage
+        run: |
+          cd src-tauri/target/release/bundle/appimage
+          APPIMAGE=$(ls *.AppImage | head -1)
+          chmod +x "$APPIMAGE"
+          # 解压 AppImage
+          "./$APPIMAGE" --appimage-extract
+          cd squashfs-root
+          # 修改 AppRun 添加环境变量
+          cat > AppRun << 'EOF'
+          #!/bin/bash
+          # 禁用 GPU/EGL 加速
+          export WEBKIT_DISABLE_COMPOSITING_MODE=1
+          export WEBKIT_FORCE_SOFTWARE_RENDERING=1
+          export LIBGL_ALWAYS_SOFTWARE=1
+          APPDIR="$(dirname "$(readlink -f "$0")")"
+          exec "${APPDIR}/usr/bin/pwa_container" "$@"
+          EOF
+          chmod +x AppRun
+          # 重新打包
+          cd ..
+          rm -f "$APPIMAGE"
+          appimagetool squashfs-root/ "$APPIMAGE"
+          rm -rf squashfs-root
+
       - uses: actions/upload-artifact@v4
         with:
           name: appimage
