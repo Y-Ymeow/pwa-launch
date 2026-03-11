@@ -16,6 +16,11 @@ jobs:
       - run: bun run build
       - run: bunx tauri build
 
+      - name: Install appimagetool
+        run: |
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O /tmp/appimagetool
+          chmod +x /tmp/appimagetool
+
       - name: Fix AppImage
         run: |
           cd src-tauri/target/release/bundle/appimage
@@ -38,7 +43,7 @@ jobs:
           # 重新打包
           cd ..
           rm -f "$APPIMAGE"
-          appimagetool squashfs-root/ "$APPIMAGE"
+          /tmp/appimagetool squashfs-root/ "$APPIMAGE"
           rm -rf squashfs-root
 
       - uses: actions/upload-artifact@v4
