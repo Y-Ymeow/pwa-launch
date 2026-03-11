@@ -54,23 +54,23 @@ jobs:
       - run: bun install
       - run: bun run build
 
-      # 直接生成签名配置文件，不再运行 init
       - name: Configure Android Signing
         run: |
-          # 确保 keystore 所在目录存在
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > src-tauri/gen/android/release.keystore
-          
-          cat > src-tauri/gen/android/key.properties << EOF
-          keyAlias=upload
-          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
-          storeFile=release.keystore
-          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          EOF
+          echo "keyAlias=upload" > src-tauri/gen/android/key.properties
+          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> src-tauri/gen/android/key.properties
+          echo "storeFile=release.keystore" >> src-tauri/gen/android/key.properties
+          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> src-tauri/gen/android/key.properties
 
       - name: Build Android Release
+        run: bunx tauri android build --target aarch64
+
+      - name: Debug Build Logs on Failure
+        if: failure()
         run: |
-          # 直接开始构建，系统会识别到已有的 gen/android 目录
-          bunx tauri android build --target aarch64
+          cd src-tauri/gen/android
+          chmod +x gradlew
+          ./gradlew assembleUniversalRelease --debug || true
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
