@@ -1,6 +1,6 @@
 use anyhow::Result;
-use std::path::Path;
 use std::fs;
+use std::path::Path;
 
 /// 创建应用数据目录结构
 pub fn create_app_dirs(app_id: &str, base_dir: &Path) -> Result<()> {
@@ -23,12 +23,12 @@ pub fn remove_app_dirs(app_id: &str, base_dir: &Path) -> Result<()> {
 /// 计算目录大小
 pub fn calculate_dir_size(path: &Path) -> Result<u64> {
     let mut total_size = 0u64;
-    
+
     if path.exists() {
         for entry in fs::read_dir(path)? {
             let entry = entry?;
             let metadata = entry.metadata()?;
-            
+
             if metadata.is_file() {
                 total_size += metadata.len();
             } else if metadata.is_dir() {
@@ -36,7 +36,7 @@ pub fn calculate_dir_size(path: &Path) -> Result<u64> {
             }
         }
     }
-    
+
     Ok(total_size)
 }
 

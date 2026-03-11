@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-opfs-delete-file"
+description = "Enables the opfs_delete_file command without any pre-configured scope."
+commands.allow = ["opfs_delete_file"]
+
+[[permission]]
+identifier = "deny-opfs-delete-file"
+description = "Denies the opfs_delete_file command without any pre-configured scope."
+commands.deny = ["opfs_delete_file"]

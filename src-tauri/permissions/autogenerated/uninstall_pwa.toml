@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-uninstall-pwa"
+description = "Enables the uninstall_pwa command without any pre-configured scope."
+commands.allow = ["uninstall_pwa"]
+
+[[permission]]
+identifier = "deny-uninstall-pwa"
+description = "Denies the uninstall_pwa command without any pre-configured scope."
+commands.deny = ["uninstall_pwa"]

@@ -1,33 +1,4 @@
 fn main() {
-    tauri_build::try_build(
-        tauri_build::Attributes::new().app_manifest(
-            tauri_build::AppManifest::new().commands(&[
-                "install_pwa",
-                "uninstall_pwa",
-                "list_apps",
-                "launch_app",
-                "close_pwa_window",
-                "list_running_pwas",
-                "clear_data",
-                "backup_data",
-                "restore_data",
-                "create_shortcut",
-                "get_app_info",
-                "update_pwa",
-                "proxy_fetch",
-                "get_cookies",
-                "set_cookies",
-                "clear_cookies",
-                "get_all_cookies",
-                "set_proxy",
-                "get_proxy",
-                "disable_proxy",
-                "opfs_write_file",
-                "opfs_read_file",
-                "opfs_delete_file",
-                "opfs_list_dir"
-            ]),
-        ),
-    )
-    .unwrap();
+    // 官方 2.0 移动端构建标准
+    tauri_build::build();
 }

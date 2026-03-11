@@ -1,8 +1,8 @@
-use tauri::Manager;
 use std::collections::HashMap;
+use tauri::Manager;
 
-use crate::models::CommandResponse;
 use super::get_app_data_dir;
+use crate::models::CommandResponse;
 
 /// OPFS 写入文件
 #[tauri::command]
@@ -12,7 +12,9 @@ pub async fn opfs_write_file(
     data: String,
     app: tauri::AppHandle,
 ) -> Result<CommandResponse<bool>, String> {
-    let app_data_dir = app.path().app_data_dir()
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
         .map_err(|e: tauri::Error| e.to_string())?;
 
     let files_dir = get_app_data_dir(&app_id, &app_data_dir).join("opfs");
@@ -24,8 +26,7 @@ pub async fn opfs_write_file(
     }
 
     let decoded = base64_decode(&data);
-    std::fs::write(&file_path, decoded)
-        .map_err(|e| format!("写入失败：{}", e))?;
+    std::fs::write(&file_path, decoded).map_err(|e| format!("写入失败：{}", e))?;
 
     log::info!("OPFS 写入：{}/{}", app_id, path);
     Ok(CommandResponse::success(true))
@@ -38,14 +39,15 @@ pub async fn opfs_read_file(
     path: String,
     app: tauri::AppHandle,
 ) -> Result<CommandResponse<String>, String> {
-    let app_data_dir = app.path().app_data_dir()
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
         .map_err(|e: tauri::Error| e.to_string())?;
 
     let files_dir = get_app_data_dir(&app_id, &app_data_dir).join("opfs");
     let file_path = files_dir.join(&path);
 
-    let data = std::fs::read(&file_path)
-        .map_err(|e| format!("读取失败：{}", e))?;
+    let data = std::fs::read(&file_path).map_err(|e| format!("读取失败：{}", e))?;
 
     Ok(CommandResponse::success(base64_encode(&data)))
 }
@@ -57,14 +59,15 @@ pub async fn opfs_delete_file(
     path: String,
     app: tauri::AppHandle,
 ) -> Result<CommandResponse<bool>, String> {
-    let app_data_dir = app.path().app_data_dir()
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
         .map_err(|e: tauri::Error| e.to_string())?;
 
     let files_dir = get_app_data_dir(&app_id, &app_data_dir).join("opfs");
     let file_path = files_dir.join(&path);
 
-    std::fs::remove_file(&file_path)
-        .map_err(|e| format!("删除失败：{}", e))?;
+    std::fs::remove_file(&file_path).map_err(|e| format!("删除失败：{}", e))?;
 
     log::info!("OPFS 删除：{}/{}", app_id, path);
     Ok(CommandResponse::success(true))
@@ -77,14 +80,15 @@ pub async fn opfs_list_dir(
     path: String,
     app: tauri::AppHandle,
 ) -> Result<CommandResponse<Vec<String>>, String> {
-    let app_data_dir = app.path().app_data_dir()
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
         .map_err(|e: tauri::Error| e.to_string())?;
 
     let files_dir = get_app_data_dir(&app_id, &app_data_dir).join("opfs");
     let dir_path = files_dir.join(&path);
 
-    let entries = std::fs::read_dir(&dir_path)
-        .map_err(|e| format!("读取目录失败：{}", e))?;
+    let entries = std::fs::read_dir(&dir_path).map_err(|e| format!("读取目录失败：{}", e))?;
 
     let names: Vec<String> = entries
         .filter_map(|e| e.ok())
@@ -105,9 +109,17 @@ fn base64_encode(data: &[u8]) -> String {
         let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
 
         let _ = write!(result, "{}", ALPHABET[(b0 >> 2) & 0x3F] as char);
-        let _ = write!(result, "{}", ALPHABET[((b0 << 4) | (b1 >> 4)) & 0x3F] as char);
+        let _ = write!(
+            result,
+            "{}",
+            ALPHABET[((b0 << 4) | (b1 >> 4)) & 0x3F] as char
+        );
         if chunk.len() > 1 {
-            let _ = write!(result, "{}", ALPHABET[((b1 << 2) | (b2 >> 6)) & 0x3F] as char);
+            let _ = write!(
+                result,
+                "{}",
+                ALPHABET[((b1 << 2) | (b2 >> 6)) & 0x3F] as char
+            );
         } else {
             result.push('=');
         }

@@ -58,7 +58,7 @@ impl<T> CommandResponse<T> {
             error: None,
         }
     }
-    
+
     pub fn error(message: String) -> Self {
         CommandResponse {
             success: false,

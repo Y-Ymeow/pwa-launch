@@ -1,9 +1,9 @@
-use tauri::State;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tauri::State;
 use tokio::sync::RwLock;
 
-use super::{CookieStore, ProxyConfig, ProxySettings, CommandResponse, extract_domain};
+use super::{extract_domain, CommandResponse, CookieStore, ProxyConfig, ProxySettings};
 
 /// 读取 Cookie - 按 app_id 隔离
 #[tauri::command]
@@ -14,7 +14,8 @@ pub async fn get_cookies(
 ) -> Result<CommandResponse<Vec<String>>, String> {
     let domain = extract_domain(&url);
     let cookies = cookie_store.read().await;
-    let result = cookies.get(&app_id)
+    let result = cookies
+        .get(&app_id)
         .and_then(|app_cookies| app_cookies.get(&domain))
         .map(|c| c.iter().map(|(k, v)| format!("{}={}", k, v)).collect())
         .unwrap_or_default();
@@ -32,7 +33,9 @@ pub async fn set_cookies(
     let domain = extract_domain(&url);
     let mut store = cookie_store.write().await;
     let app_cookies = store.entry(app_id.clone()).or_insert_with(HashMap::new);
-    let domain_cookies = app_cookies.entry(domain.clone()).or_insert_with(HashMap::new);
+    let domain_cookies = app_cookies
+        .entry(domain.clone())
+        .or_insert_with(HashMap::new);
 
     for cookie in cookies {
         if let Some(eq_pos) = cookie.find('=') {
@@ -44,7 +47,12 @@ pub async fn set_cookies(
         }
     }
 
-    log::info!("设置 Cookie (app: {}): {} {:?}", app_id, domain, domain_cookies);
+    log::info!(
+        "设置 Cookie (app: {}): {} {:?}",
+        app_id,
+        domain,
+        domain_cookies
+    );
     Ok(CommandResponse::success(true))
 }
 
@@ -75,9 +83,7 @@ pub async fn get_all_cookies(
     cookie_store: State<'_, CookieStore>,
 ) -> Result<CommandResponse<HashMap<String, HashMap<String, String>>>, String> {
     let cookies = cookie_store.read().await;
-    let result = cookies.get(&app_id)
-        .map(|c| c.clone())
-        .unwrap_or_default();
+    let result = cookies.get(&app_id).map(|c| c.clone()).unwrap_or_default();
     Ok(CommandResponse::success(result))
 }
 
@@ -90,7 +96,11 @@ pub async fn set_proxy(
     proxy_config: State<'_, ProxyConfig>,
 ) -> Result<CommandResponse<bool>, String> {
     let mut config = proxy_config.write().await;
-    *config = url.map(|u| ProxySettings { url: u, username, password });
+    *config = url.map(|u| ProxySettings {
+        url: u,
+        username,
+        password,
+    });
     log::info!("设置代理：{:?}", *config);
     Ok(CommandResponse::success(true))
 }

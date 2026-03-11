@@ -7,9 +7,9 @@ pub type DbConnection = Mutex<Connection>;
 /// 初始化数据库
 pub fn init_db(app_data_dir: &Path) -> Result<()> {
     let db_path = app_data_dir.join("pwa_container.db");
-    
+
     let conn = Connection::open(&db_path)?;
-    
+
     // 创建应用信息表
     conn.execute(
         "CREATE TABLE IF NOT EXISTS apps (
@@ -28,7 +28,7 @@ pub fn init_db(app_data_dir: &Path) -> Result<()> {
         )",
         [],
     )?;
-    
+
     // 创建备份记录表
     conn.execute(
         "CREATE TABLE IF NOT EXISTS backups (
@@ -41,7 +41,7 @@ pub fn init_db(app_data_dir: &Path) -> Result<()> {
         )",
         [],
     )?;
-    
+
     log::info!("数据库初始化完成：{:?}", db_path);
     Ok(())
 }

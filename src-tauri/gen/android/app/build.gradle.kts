@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.io.FileInputStream
 
 plugins {
     id("com.android.application")
@@ -9,7 +10,7 @@ plugins {
 val tauriProperties = Properties().apply {
     val propFile = file("tauri.properties")
     if (propFile.exists()) {
-        propFile.inputStream().use { load(it) }
+        FileInputStream(propFile).use { load(it) }
     }
 }
 
@@ -24,12 +25,13 @@ android {
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
+    
     signingConfigs {
         create("release") {
             val keyPropertiesFile = rootProject.file("key.properties")
-            val keyProperties = Properties()
             if (keyPropertiesFile.exists()) {
-                keyProperties.load(keyPropertiesFile.inputStream())
+                val keyProperties = Properties()
+                FileInputStream(keyPropertiesFile).use { keyProperties.load(it) }
                 keyAlias = keyProperties.getProperty("keyAlias")
                 keyPassword = keyProperties.getProperty("keyPassword")
                 storeFile = file(keyProperties.getProperty("storeFile"))
@@ -37,6 +39,7 @@ android {
             }
         }
     }
+
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
@@ -52,7 +55,13 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = true
-            signingConfig = signingConfigs.getByName("release")
+            
+            // 动态关联签名
+            val keyPropertiesFile = rootProject.file("key.properties")
+            if (keyPropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
@@ -61,10 +70,14 @@ android {
         }
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "21"
     }
     buildFeatures {
         buildConfig = true
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 }
 

@@ -1,12 +1,14 @@
-use tauri::{State, Manager};
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tauri::{Manager, State};
 use tokio::sync::RwLock;
 
-use crate::db::{DbConnection, get_app_data_dir, get_backup_dir};
-use crate::models::{AppInfo, InstallRequest, BackupInfo, CommandResponse, ShortcutInfo};
-use crate::utils::{generate_app_id, now_timestamp, calculate_dir_size, create_app_dirs, remove_app_dirs};
+use crate::db::{get_app_data_dir, get_backup_dir, DbConnection};
+use crate::models::{AppInfo, BackupInfo, CommandResponse, InstallRequest, ShortcutInfo};
+use crate::utils::{
+    calculate_dir_size, create_app_dirs, generate_app_id, now_timestamp, remove_app_dirs,
+};
 
 // 全局 Cookie 存储 - 按 app_id + 域名 隔离
 pub type CookieStore = Arc<RwLock<HashMap<String, HashMap<String, HashMap<String, String>>>>>;
@@ -22,18 +24,18 @@ pub struct ProxySettings {
 }
 
 // 子模块
-pub mod proxy;
-pub mod cookie;
-pub mod pwa;
 pub mod backup;
+pub mod cookie;
 pub mod opfs;
+pub mod proxy;
+pub mod pwa;
 
 // 重新导出
-pub use proxy::*;
-pub use cookie::*;
-pub use pwa::*;
 pub use backup::*;
+pub use cookie::*;
 pub use opfs::*;
+pub use proxy::*;
+pub use pwa::*;
 
 // 辅助函数
 fn extract_domain(url: &str) -> String {

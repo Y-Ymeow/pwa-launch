@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-pwa"
+description = "Enables the update_pwa command without any pre-configured scope."
+commands.allow = ["update_pwa"]
+
+[[permission]]
+identifier = "deny-update-pwa"
+description = "Denies the update_pwa command without any pre-configured scope."
+commands.deny = ["update_pwa"]

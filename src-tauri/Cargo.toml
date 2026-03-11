@@ -10,7 +10,7 @@ name = "pwa_container_lib"
 crate-type = ["lib", "cdylib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.5.6", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["unstable"] }
@@ -33,17 +33,21 @@ dirs = "5"
 cookie = "0.18"
 urlencoding = "2"
 http = "1"
+base64 = "0.22"
+tauri-plugin-os = "2"
 
-# Debug 模式 - 快速编译，仅 strip 减小体积
+
+[features]
+default = []
+
+# Debug 模式 - 快速编译
 [profile.dev]
-strip = true         # 仅移除调试符号，大幅减小体积
+strip = true
 
-# Release 模式优化 - 最小体积
+# Release 模式优化
 [profile.release]
-codegen-units = 1    # 允许 LLVM 更好优化
-lto = true           # 完整链接时优化
-opt-level = "s"      # 优化二进制大小
-panic = "abort"      # 禁用 panic 处理
-strip = true         # 移除所有符号
-
-
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
