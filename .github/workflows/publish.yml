@@ -14,9 +14,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v1
       - uses: dtolnay/rust-toolchain@stable
+      
+      # 1. Rust 编译缓存
+      - uses: Swatinem/rust-cache@v2
+        with:
+          work-directories: "src-tauri"
+
       - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: bun install
       - run: bun run build
+      
+      # 只生成二进制、DEB 和 RPM
       - run: bunx tauri build --bundles deb,rpm
 
       - name: Prepare Portable Linux Directory
@@ -46,7 +54,13 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21 # 使用 Java 21 匹配本地环境
+      
+      # 1. Rust 编译缓存 (针对 Android 目标)
+      - uses: Swatinem/rust-cache@v2
+        with:
+          work-directories: "src-tauri"
+
       - uses: android-actions/setup-android@v3
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -56,7 +70,10 @@ jobs:
 
       - name: Configure Android Signing
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > src-tauri/gen/android/release.keystore
+          # 必须生成在 app 目录下，对齐 build.gradle.kts
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > src-tauri/gen/android/app/release.keystore
+          
+          # 属性文件放在 gen/android 下
           echo "keyAlias=upload" > src-tauri/gen/android/key.properties
           echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> src-tauri/gen/android/key.properties
           echo "storeFile=release.keystore" >> src-tauri/gen/android/key.properties
@@ -64,13 +81,6 @@ jobs:
 
       - name: Build Android Release
         run: bunx tauri android build --target aarch64
-
-      - name: Debug Build Logs on Failure
-        if: failure()
-        run: |
-          cd src-tauri/gen/android
-          chmod +x gradlew
-          ./gradlew assembleUniversalRelease --debug || true
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
