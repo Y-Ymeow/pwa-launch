@@ -206,13 +206,23 @@ pub fn launch_app(
 
     let webview_builder = webview_builder.initialization_script(&init_script);
 
-    window
-        .add_child(
-            webview_builder,
-            tauri::LogicalPosition::new(0, 0),
-            window.inner_size().unwrap(),
-        )
-        .map_err(|e| format!("创建 WebView 失败：{}", e))?;
+    #[cfg(not(mobile))]
+    {
+        window
+            .add_child(
+                webview_builder,
+                tauri::LogicalPosition::new(0, 0),
+                window.inner_size().unwrap(),
+            )
+            .map_err(|e| format!("创建 WebView 失败：{}", e))?;
+    }
+
+    #[cfg(mobile)]
+    {
+        // 移动端使用不同的 WebView 创建方式
+        let _ = webview_builder;
+        log::info!("移动端 WebView 创建方式不同，跳过 add_child");
+    }
 
     log::info!("启动 PWA 应用：{} -> {} (窗口：{})", app_name, app_url, window_id);
     Ok(CommandResponse::success(window_id))
