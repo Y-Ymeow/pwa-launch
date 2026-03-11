@@ -1,16 +1,38 @@
 {
   "$schema": "https://schema.tauri.app/config/2/capabilities",
-  "identifier": "default",
+  "identifier": "main-capability",
   "description": "Default capability for the app",
   "windows": [
-    "*"
+    "main"
   ],
   "permissions": [
     "core:default",
-    "core:webview:default",
-    "core:window:default",
     "shell:default",
     "fs:default",
-    "http:default"
+    "http:default",
+    "allow-install-pwa",
+    "allow-uninstall-pwa",
+    "allow-list-apps",
+    "allow-launch-app",
+    "allow-close-pwa-window",
+    "allow-list-running-pwas",
+    "allow-clear-data",
+    "allow-backup-data",
+    "allow-restore-data",
+    "allow-create-shortcut",
+    "allow-get-app-info",
+    "allow-update-pwa",
+    "allow-proxy-fetch",
+    "allow-get-cookies",
+    "allow-set-cookies",
+    "allow-clear-cookies",
+    "allow-get-all-cookies",
+    "allow-set-proxy",
+    "allow-get-proxy",
+    "allow-disable-proxy",
+    "allow-opfs-write-file",
+    "allow-opfs-read-file",
+    "allow-opfs-delete-file",
+    "allow-opfs-list-dir"
   ]
 }

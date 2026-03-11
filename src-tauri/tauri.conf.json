@@ -22,7 +22,7 @@
         "transparent": false,
         "devtools": true,
         "visible": true,
-        "useHttpsScheme": true
+        "useHttpsScheme": false
       }
     ],
     "security": {

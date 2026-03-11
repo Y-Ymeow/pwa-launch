@@ -1,17 +1,33 @@
-use std::env;
-use std::fs;
-use std::path::PathBuf;
-
 fn main() {
-    tauri_build::build();
-
-    // 复制自定义 AppRun 脚本到目标目录（用于 AppImage）
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let apprun_src = PathBuf::from("AppRun");
-    let apprun_dst = PathBuf::from(&out_dir).join("../../../AppRun");
-    
-    if apprun_src.exists() {
-        fs::copy(&apprun_src, &apprun_dst).expect("Failed to copy AppRun");
-        println!("cargo:rerun-if-changed=AppRun");
-    }
+    tauri_build::try_build(
+        tauri_build::Attributes::new().app_manifest(
+            tauri_build::AppManifest::new().commands(&[
+                "install_pwa",
+                "uninstall_pwa",
+                "list_apps",
+                "launch_app",
+                "close_pwa_window",
+                "list_running_pwas",
+                "clear_data",
+                "backup_data",
+                "restore_data",
+                "create_shortcut",
+                "get_app_info",
+                "update_pwa",
+                "proxy_fetch",
+                "get_cookies",
+                "set_cookies",
+                "clear_cookies",
+                "get_all_cookies",
+                "set_proxy",
+                "get_proxy",
+                "disable_proxy",
+                "opfs_write_file",
+                "opfs_read_file",
+                "opfs_delete_file",
+                "opfs_list_dir"
+            ]),
+        ),
+    )
+    .unwrap();
 }

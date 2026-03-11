@@ -16,27 +16,34 @@ jobs:
       - run: bun run build
       - run: bunx tauri build
 
-      - run: bunx tauri build
-
-      - name: Create launcher script
+      - name: Prepare Linux Artifacts
         run: |
-          cd src-tauri/target/release/bundle/appimage
-          APPIMAGE=$(ls *.AppImage | head -1)
-          cat > run.sh << EOF
-          #!/bin/bash
-          # 禁用 GPU/EGL 加速
-          export WEBKIT_DISABLE_COMPOSITING_MODE=1
-          export WEBKIT_FORCE_SOFTWARE_RENDERING=1
-          export LIBGL_ALWAYS_SOFTWARE=1
-          exec ./"$APPIMAGE" "$@"
-          EOF
-          chmod +x run.sh
-          tar czf "${APPIMAGE%.AppImage}.tar.gz" "$APPIMAGE" run.sh
+          mkdir -p release-out
+          
+          # 1. 提取原始二进制文件 (Portable Binary)
+          # Tauri 2.0 默认二进制名通常是 package.json 中的 name 或 tauri.conf.json 中的 productName
+          # 这里我们尝试查找并重命名为更友好的名称
+          BINARY_PATH="src-tauri/target/release/pwa-container"
+          if [ -f "$BINARY_PATH" ]; then
+            cp "$BINARY_PATH" release-out/pwa-container-x86_64
+            # 压缩为绿色版 tar.gz
+            cd release-out
+            tar czf pwa-container-linux-portable.tar.gz pwa-container-x86_64
+            rm pwa-container-x86_64
+            cd ..
+          fi
+          
+          # 2. 收集 AppImage (虽然在某些系统有 EGL 问题，但仍保留作为备选)
+          find src-tauri/target/release/bundle/appimage -name "*.AppImage" -exec cp {} release-out/ \;
+          
+          # 3. 收集 DEB 和 RPM (用户确认 RPM 没问题)
+          find src-tauri/target/release/bundle -name "*.deb" -exec cp {} release-out/ \;
+          find src-tauri/target/release/bundle -name "*.rpm" -exec cp {} release-out/ \;
 
       - uses: actions/upload-artifact@v4
         with:
-          name: appimage
-          path: src-tauri/target/release/bundle/appimage/*.tar.gz
+          name: linux-release
+          path: release-out/*
 
   android:
     runs-on: ubuntu-latest
@@ -53,55 +60,35 @@ jobs:
           targets: aarch64-linux-android
       - run: bun install
       - run: bun run build
-      - run: bunx tauri android init || true
 
-      - name: Disable hardware acceleration
-        run: |
-          MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
-          if [ -f "$MANIFEST" ]; then
-            sed -i 's/<application/<application android:hardwareAccelerated="false"/' "$MANIFEST"
-            cat "$MANIFEST"
-          fi
-
-      # 尝试构建 Release（带签名）
+      # 构建 Android Release
       - name: Build Android Release
         id: build_release
+        env:
+          TAURI_ANDROID_SIGNING_KEY_ALIAS: "upload"
+          TAURI_ANDROID_SIGNING_KEY_PASSWORD: "${{ secrets.ANDROID_KEY_PASSWORD }}"
+          TAURI_ANDROID_SIGNING_KEYSTORE_PASSWORD: "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
         run: |
-          # 解码 keystore
+          # 确保 keystore 在工作目录
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android.keystore
+          export TAURI_ANDROID_SIGNING_KEYSTORE_PATH="$(pwd)/android.keystore"
+          
+          echo "Keystore path check: $TAURI_ANDROID_SIGNING_KEYSTORE_PATH"
           ls -la android.keystore
           
-          # 设置签名环境变量
-          export TAURI_ANDROID_SIGNING_KEYSTORE_PATH="$(pwd)/android.keystore"
-          export TAURI_ANDROID_SIGNING_KEY_ALIAS="upload"
-          export TAURI_ANDROID_SIGNING_KEY_PASSWORD="${{ secrets.ANDROID_KEY_PASSWORD }}"
-          export TAURI_ANDROID_SIGNING_KEYSTORE_PASSWORD="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
-          
-          echo "签名配置:"
-          echo "  KEYSTORE_PATH: $TAURI_ANDROID_SIGNING_KEYSTORE_PATH"
-          echo "  KEY_ALIAS: $TAURI_ANDROID_SIGNING_KEY_ALIAS"
-          
+          # 执行构建
           bunx tauri android build --target aarch64
         continue-on-error: true
 
-      # 如果 Release 失败，构建 Debug
+      # 如果 Release 失败，构建 Debug (方便排查是否是签名问题)
       - name: Build Android Debug
         if: steps.build_release.outcome == 'failure'
         run: |
           bunx tauri android build --target aarch64 --debug
 
-      # 上传 Release APK
-      - name: Upload Release APK
-        if: steps.build_release.outcome == 'success'
+      # 上传 APK
+      - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: android-release-apk
-          path: src-tauri/gen/android/app/build/outputs/apk/**/release/*.apk
-
-      # 上传 Debug APK
-      - name: Upload Debug APK
-        if: steps.build_release.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-debug-apk
-          path: src-tauri/gen/android/app/build/outputs/apk/**/debug/*.apk
+          name: android-apks
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
