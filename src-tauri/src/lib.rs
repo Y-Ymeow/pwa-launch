@@ -71,11 +71,8 @@ pub fn run() {
             log::info!("应用初始化完成!");
             Ok(())
         })
-        .on_page_load(|webview, payload| {
+        .on_page_load(|_webview, payload| {
             log::info!("页面加载: url={}, event={:?}", payload.url(), payload.event());
-        })
-        .on_webview_ready(|webview| {
-            log::info!("WebView 准备就绪: {:?}", webview.label());
         })
         .invoke_handler(tauri::generate_handler![
             commands::install_pwa,
