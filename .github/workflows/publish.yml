@@ -17,8 +17,6 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: bun install
       - run: bun run build
-
-      # 只生成二进制、DEB 和 RPM，跳过 AppImage
       - run: bunx tauri build --bundles deb,rpm
 
       - name: Prepare Portable Linux Directory
@@ -55,28 +53,25 @@ jobs:
           targets: aarch64-linux-android
       - run: bun install
       - run: bun run build
-      - run: bunx tauri android init
 
-      # 构建 Android Release
+      # 直接生成签名配置文件，不再运行 init
+      - name: Configure Android Signing
+        run: |
+          # 确保 keystore 所在目录存在
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > src-tauri/gen/android/release.keystore
+          
+          cat > src-tauri/gen/android/key.properties << EOF
+          keyAlias=upload
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          storeFile=release.keystore
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          EOF
+
       - name: Build Android Release
-        id: build_release
-        env:
-          TAURI_ANDROID_SIGNING_KEY_ALIAS: "upload"
-          TAURI_ANDROID_SIGNING_KEY_PASSWORD: "${{ secrets.ANDROID_KEY_PASSWORD }}"
-          TAURI_ANDROID_SIGNING_KEYSTORE_PASSWORD: "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android.keystore
-          export TAURI_ANDROID_SIGNING_KEYSTORE_PATH="$(pwd)/android.keystore"
+          # 直接开始构建，系统会识别到已有的 gen/android 目录
           bunx tauri android build --target aarch64
-        continue-on-error: true
 
-      # 如果 Release 失败，构建 Debug
-      - name: Build Android Debug
-        if: steps.build_release.outcome == 'failure'
-        run: |
-          bunx tauri android build --target aarch64 --debug
-
-      # 上传 APK
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
