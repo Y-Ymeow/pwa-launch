@@ -20,10 +20,12 @@ pub fn run() {
         std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
     }
 
-    // 日志配置
-    std::env::set_var("RUST_LOG", "debug");
+    // 日志配置 - 只显示我们的日志，屏蔽第三方库的调试信息
+    std::env::set_var("RUST_LOG", "pwa_container_lib=debug,warn");
     env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Debug)
+        .filter_module("pwa_container_lib", log::LevelFilter::Debug)
+        .filter_module("glycin", log::LevelFilter::Warn)
+        .filter_module("webkit", log::LevelFilter::Warn)
         .init();
 
     log::info!("=== PWA Container 启动 ===");
