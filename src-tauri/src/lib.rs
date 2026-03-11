@@ -29,18 +29,30 @@ pub fn run() {
         std::env::set_var("WEBKIT_DISABLE_WEB_PROCESS_SIDE_DISPLAY", "1");
     }
 
-    env_logger::init();
+    // 强制日志输出到 stderr
+    std::env::set_var("RUST_LOG", "debug");
+    std::env::set_var("RUST_BACKTRACE", "1");
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .init();
+
+    log::info!("=== PWA Container 启动 ===");
+    log::info!("平台: {:?}", std::env::consts::OS);
 
     tauri::Builder::default()
         .plugin(shell_plugin())
         .plugin(fs_plugin())
         .plugin(http_plugin())
         .setup(|app| {
+            log::info!("应用初始化开始...");
+
             // 初始化应用数据目录
             let app_data_dir = app.path().app_data_dir()?;
+            log::info!("应用数据目录: {:?}", app_data_dir);
             std::fs::create_dir_all(&app_data_dir)?;
 
             // 初始化数据库
+            log::info!("初始化数据库...");
             db::init_db(&app_data_dir)?;
 
             // 注册数据库状态
@@ -56,7 +68,14 @@ pub fn run() {
             let proxy_config: commands::ProxyConfig = Arc::new(RwLock::new(None));
             app.manage(proxy_config);
 
+            log::info!("应用初始化完成!");
             Ok(())
+        })
+        .on_page_load(|webview, payload| {
+            log::info!("页面加载: url={}, event={:?}", payload.url(), payload.event());
+        })
+        .on_webview_ready(|webview| {
+            log::info!("WebView 准备就绪: {:?}", webview.label());
         })
         .invoke_handler(tauri::generate_handler![
             commands::install_pwa,
