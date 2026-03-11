@@ -60,6 +60,7 @@ jobs:
           targets: aarch64-linux-android
       - run: bun install
       - run: bun run build
+      - run: bunx tauri android init
 
       # 构建 Android Release
       - name: Build Android Release
