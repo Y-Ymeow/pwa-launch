@@ -1,0 +1,13 @@
+#!/bin/bash
+# AppImage 启动脚本
+
+# 禁用 GPU/EGL 加速（解决 AppImage 兼容性问题）
+export WEBKIT_DISABLE_COMPOSITING_MODE=1
+export WEBKIT_FORCE_SOFTWARE_RENDERING=1
+export LIBGL_ALWAYS_SOFTWARE=1
+
+# 获取应用目录
+APPDIR="$(dirname "$(readlink -f "$0")")"
+
+# 运行应用
+exec "${APPDIR}/usr/bin/pwa_container" "$@"

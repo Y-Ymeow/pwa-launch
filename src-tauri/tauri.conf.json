@@ -44,7 +44,12 @@
       "icons/icon.ico"
     ],
     "resources": [],
-    "category": "Utility"
+    "category": "Utility",
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
   },
   "plugins": {
     "fs": {
