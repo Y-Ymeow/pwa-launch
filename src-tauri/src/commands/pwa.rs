@@ -141,38 +141,98 @@ pub fn launch_app(
     std::fs::create_dir_all(&user_data_dir).ok();
 
     #[cfg(not(mobile))]
-    let window = {
-        let mut builder = tauri::window::WindowBuilder::new(&app, &window_id)
-            .title(&app_name)
-            .inner_size(width as f64, height as f64)
-            .resizable(resizable)
-            .decorations(decorations);
-        if fullscreen {
-            builder = builder.fullscreen(fullscreen);
-        }
-        builder.build().map_err(|e| format!("创建窗口失败：{}", e))?
-    };
+    {
+        // 桌面端：创建独立窗口
+        let window = {
+            let mut builder = tauri::window::WindowBuilder::new(&app, &window_id)
+                .title(&app_name)
+                .inner_size(width as f64, height as f64)
+                .resizable(resizable)
+                .decorations(decorations);
+            if fullscreen {
+                builder = builder.fullscreen(fullscreen);
+            }
+            builder.build().map_err(|e| format!("创建窗口失败：{}", e))?
+        };
+
+        let webview_builder = tauri::webview::WebviewBuilder::new(
+            format!("{}_webview", window_id),
+            tauri::WebviewUrl::External(app_url.parse().map_err(|e| format!("URL 解析失败：{}", e))?)
+        )
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .devtools(true)
+        .data_directory(user_data_dir);
+
+        let init_script = format!(r#"
+            window.__PWA_APP_ID__ = '{app_id}';
+            const tauri = window.__TAURI_INTERNALS__ || window.__TAURI__;
+            window.__PWA_PROXY__ = {{
+                fetch: async function(url, init = {{}}) {{
+                    const method = (init.method || 'GET').toUpperCase();
+                    const headers = {{}};
+                    if (init.headers) {{
+                        for (const [key, value] of Object.entries(init.headers)) {{
+                            if (!['content-length', 'host'].includes(key.toLowerCase())) {{
+                                headers[key] = value;
+                            }}
+                        }}
+                    }}
+                    let body = init.body;
+                    if (body && typeof body !== 'string') {{
+                        body = await new Response(body).text();
+                    }}
+                    const result = await tauri.invoke('proxy_fetch', {{
+                        url, method, headers, body: body || null, appId: window.__PWA_APP_ID__
+                    }});
+                    if (result.success && result.data) {{
+                        const {{ status, headers, body }} = result.data;
+                        return new Response(body, {{ status, headers: new Headers(headers) }});
+                    }}
+                    throw new Error('代理请求失败：' + (result.error || '未知错误'));
+                }}
+            }};
+        "#);
+
+        let webview_builder = webview_builder.initialization_script(&init_script);
+
+        window
+            .add_child(
+                webview_builder,
+                tauri::LogicalPosition::new(0, 0),
+                window.inner_size().unwrap(),
+            )
+            .map_err(|e| format!("创建 WebView 失败：{}", e))?;
+    }
 
     #[cfg(mobile)]
-    let window = tauri::window::WindowBuilder::new(&app, &window_id)
-        .build()
-        .map_err(|e| format!("创建窗口失败：{}", e))?;
+    {
+        // 移动端：在主窗口创建全屏 WebView（小程序式）
+        let main_window = app.get_webview_window("main")
+            .ok_or("主窗口不存在")?;
 
-    let webview_builder = tauri::webview::WebviewBuilder::new(
-        format!("{}_webview", window_id),
-        tauri::WebviewUrl::External(app_url.parse().map_err(|e| format!("URL 解析失败：{}", e))?)
-    )
-    .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-    .devtools(true)
-    .data_directory(user_data_dir)
-    .additional_browser_args("--disable-web-security --disable-site-isolation-trials --allow-file-access-from-files --disable-features=SameSiteByDefaultCookies,CookiesWithoutSameSiteMustBeSecure,IsolateOrigins,site-per-process --disable-features=BlockInsecurePrivateNetworkRequests");
+        // 隐藏主界面
+        main_window.eval(r#"
+            document.body.style.display = 'none';
+        "#).ok();
 
-    let init_script = format!(r#"
-        (function() {{
+        // 创建 PWA WebView（全屏覆盖）
+        let webview_id = format!("pwa_{}", app_id);
+        let webview_url = tauri::WebviewUrl::External(
+            app_url.parse().map_err(|e| format!("URL 解析失败：{}", e))?
+        );
+
+        let init_script = format!(r#"
             window.__PWA_APP_ID__ = '{app_id}';
-            console.log('[PWA Container] 注入脚本已加载，App ID:', window.__PWA_APP_ID__);
-
             const tauri = window.__TAURI_INTERNALS__ || window.__TAURI__;
+
+            // 添加返回主界面按钮
+            const backBtn = document.createElement('div');
+            backBtn.innerHTML = '← 返回';
+            backBtn.style.cssText = 'position:fixed;top:10px;left:10px;z-index:999999;background:rgba(0,0,0,0.7);color:#fff;padding:8px 16px;border-radius:20px;font-size:14px;cursor:pointer;';
+            backBtn.onclick = function() {{
+                tauri.invoke('close_pwa_window', {{ windowId: '{webview_id}' }});
+            }};
+            document.body.appendChild(backBtn);
 
             window.__PWA_PROXY__ = {{
                 fetch: async function(url, init = {{}}) {{
@@ -199,32 +259,18 @@ pub fn launch_app(
                     throw new Error('代理请求失败：' + (result.error || '未知错误'));
                 }}
             }};
+        "#);
 
-            console.log('[PWA Container] 跨域代理工具已就绪');
-        }})();
-    "#);
+        // 使用 navigate 加载 URL 到新的 webview
+        main_window.navigate(webview_url)
+            .map_err(|e| format!("导航到 PWA 失败：{}", e))?;
 
-    let webview_builder = webview_builder.initialization_script(&init_script);
-
-    #[cfg(not(mobile))]
-    {
-        window
-            .add_child(
-                webview_builder,
-                tauri::LogicalPosition::new(0, 0),
-                window.inner_size().unwrap(),
-            )
-            .map_err(|e| format!("创建 WebView 失败：{}", e))?;
+        // 注入脚本
+        main_window.eval(&init_script)
+            .map_err(|e| format!("注入脚本失败：{}", e))?;
     }
 
-    #[cfg(mobile)]
-    {
-        // 移动端使用不同的 WebView 创建方式
-        let _ = webview_builder;
-        log::info!("移动端 WebView 创建方式不同，跳过 add_child");
-    }
-
-    log::info!("启动 PWA 应用：{} -> {} (窗口：{})", app_name, app_url, window_id);
+    log::info!("启动 PWA 应用：{} -> {} (ID：{})", app_name, app_url, window_id);
     Ok(CommandResponse::success(window_id))
 }
 
@@ -274,20 +320,30 @@ pub fn update_pwa(
 /// 关闭 PWA 窗口
 #[tauri::command]
 pub fn close_pwa_window(
-    window_id: String,
+    _window_id: String,
     app: tauri::AppHandle,
 ) -> Result<CommandResponse<bool>, String> {
-    if let Some(window) = app.get_webview_window(&window_id) {
-        #[cfg(not(mobile))]
-        window.destroy().map_err(|e| format!("关闭窗口失败：{}", e))?;
-        #[cfg(mobile)]
-        {
-            // 移动端关闭窗口的处理方式不同
-            let _ = window;
+    #[cfg(not(mobile))]
+    {
+        if let Some(window) = app.get_webview_window(&_window_id) {
+            window.destroy().map_err(|e| format!("关闭窗口失败：{}", e))?;
+            Ok(CommandResponse::success(true))
+        } else {
+            Ok(CommandResponse::success(false))
         }
-        Ok(CommandResponse::success(true))
-    } else {
-        Ok(CommandResponse::success(false))
+    }
+
+    #[cfg(mobile)]
+    {
+        // 移动端：返回主界面
+        if let Some(main_window) = app.get_webview_window("main") {
+            // 重新加载主页面
+            main_window.navigate(tauri::WebviewUrl::App("index.html".into()))
+                .map_err(|e| format!("返回主界面失败：{}", e))?;
+            Ok(CommandResponse::success(true))
+        } else {
+            Ok(CommandResponse::success(false))
+        }
     }
 }
 
