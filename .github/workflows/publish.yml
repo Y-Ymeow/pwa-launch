@@ -14,38 +14,21 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: bun install
       - run: bun run build
-      
-      # 只生成二进制、DEB 和 RPM，跳过 AppImage 减少报错
+
+      # 只生成二进制、DEB 和 RPM，跳过 AppImage
       - run: bunx tauri build --bundles deb,rpm
 
       - name: Prepare Portable Linux Directory
         run: |
           mkdir -p release-out/pwa-container-portable
-          
-          # 1. 提取原始二进制文件 (就像 Windows 的 exe)
           BINARY_NAME="pwa-container"
           if [ -f "src-tauri/target/release/$BINARY_NAME" ]; then
             cp "src-tauri/target/release/$BINARY_NAME" release-out/pwa-container-portable/
-            
-            # 创建一个简单的启动说明
-            cat > release-out/pwa-container-portable/README.txt << EOF
-PWA Container Linux Portable
-===========================
-运行方法:
-1. 在终端打开此目录
-2. 执行: ./pwa-container
-
-注意: 请确保系统已安装 libwebkit2gtk-4.1 (大多数现代 Linux 发行版均已内置)。
-EOF
-            
-            # 打包为压缩包
             cd release-out
             tar czf pwa-container-linux-x64.tar.gz pwa-container-portable/
             rm -rf pwa-container-portable/
             cd ..
           fi
-          
-          # 2. 收集 DEB 和 RPM
           find src-tauri/target/release/bundle -name "*.deb" -exec cp {} release-out/ \;
           find src-tauri/target/release/bundle -name "*.rpm" -exec cp {} release-out/ \;
 
@@ -71,7 +54,7 @@ EOF
       - run: bun run build
       - run: bunx tauri android init
 
-      # 构建 Android Release (Secret 已修正)
+      # 构建 Android Release
       - name: Build Android Release
         id: build_release
         env:
