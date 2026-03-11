@@ -76,14 +76,36 @@ jobs:
             cat "$MANIFEST"
           fi
 
-      - run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android.keystore 2>/dev/null || true
+      # 尝试构建 Release（带签名）
+      - name: Build Android Release
+        id: build_release
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android.keystore
           export TAURI_ANDROID_SIGNING_KEYSTORE_PATH=android.keystore
           export TAURI_ANDROID_SIGNING_KEY_ALIAS=upload
           export TAURI_ANDROID_SIGNING_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}
           export TAURI_ANDROID_SIGNING_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          bunx tauri android build --target aarch64 || bunx tauri android build --target aarch64 --debug
-      - uses: actions/upload-artifact@v4
+          bunx tauri android build --target aarch64
+        continue-on-error: true
+
+      # 如果 Release 失败，构建 Debug
+      - name: Build Android Debug
+        if: steps.build_release.outcome == 'failure'
+        run: |
+          bunx tauri android build --target aarch64 --debug
+
+      # 上传 Release APK
+      - name: Upload Release APK
+        if: steps.build_release.outcome == 'success'
+        uses: actions/upload-artifact@v4
         with:
-          name: apk
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          name: android-release-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/release/*.apk
+
+      # 上传 Debug APK
+      - name: Upload Debug APK
+        if: steps.build_release.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/debug/*.apk
