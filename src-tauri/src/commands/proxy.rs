@@ -115,30 +115,58 @@ pub async fn proxy_fetch(
         .map(|s| s.to_lowercase())
         .unwrap_or_default();
     
+    // 检查是否需要自动解压（gzip 或 br 压缩）
+    let encoding = response_headers.get("content-encoding")
+        .map(|s| s.to_lowercase())
+        .unwrap_or_default();
+    
     // 读取响应体为 bytes
     let response_bytes = response
         .bytes()
         .await
         .map_err(|e| format!("读取响应失败：{}", e))?;
     
-    // 如果是图片或二进制数据，转为 base64
-    let response_body = if content_type.starts_with("image/") 
+    // 自动解压压缩内容
+    let decompressed_bytes = if encoding.contains("gzip") {
+        use flate2::read::GzDecoder;
+        use std::io::Read;
+        let mut decoder = GzDecoder::new(&response_bytes[..]);
+        let mut decompressed = Vec::new();
+        let _ = decoder.read_to_end(&mut decompressed);
+        if decompressed.is_empty() { response_bytes.to_vec() } else { decompressed }
+    } else {
+        response_bytes.to_vec()
+    };
+    
+    // 判断是否为二进制内容
+    let is_binary = content_type.starts_with("image/") 
         || content_type.starts_with("application/octet-stream")
         || content_type.starts_with("audio/")
-        || content_type.starts_with("video/") {
-        // base64 编码
+        || content_type.starts_with("video/")
+        || content_type.starts_with("application/pdf")
+        || content_type.starts_with("application/zip");
+    
+    // 如果是图片或二进制数据，转为 base64
+    let response_body = if is_binary {
         use base64::Engine;
-        base64::engine::general_purpose::STANDARD.encode(&response_bytes)
+        base64::engine::general_purpose::STANDARD.encode(&decompressed_bytes)
     } else {
         // 文本内容，尝试转为字符串
-        String::from_utf8_lossy(&response_bytes).to_string()
+        String::from_utf8_lossy(&decompressed_bytes).to_string()
     };
+
+    // 调试日志：显示返回内容的前 200 个字符
+    if response_body.len() < 500 {
+        log::info!("代理响应 [{}] body: {}", url, response_body);
+    } else {
+        log::info!("代理响应 [{}] body: {}...", url, &response_body[..200]);
+    }
 
     Ok(CommandResponse::success(serde_json::json!({
         "status": status,
         "headers": response_headers,
         "body": response_body,
-        "is_base64": content_type.starts_with("image/") 
-            || content_type.starts_with("application/octet-stream")
+        "is_base64": is_binary,
+        "encoding": if encoding.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(encoding) }
     })))
 }

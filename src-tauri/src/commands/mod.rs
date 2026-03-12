@@ -26,16 +26,24 @@ pub struct ProxySettings {
 // 子模块
 pub mod backup;
 pub mod cookie;
+pub mod file_dialog;
 pub mod opfs;
 pub mod proxy;
 pub mod pwa;
+pub mod static_protocol;
+pub mod stream_file_protocol;
+pub mod stream_proxy;
+pub mod ws_proxy;
 
 // 重新导出
 pub use backup::*;
 pub use cookie::*;
+pub use file_dialog::*;
 pub use opfs::*;
 pub use proxy::*;
 pub use pwa::*;
+pub use stream_proxy::*;
+pub use ws_proxy::*;
 
 // 辅助函数
 fn extract_domain(url: &str) -> String {

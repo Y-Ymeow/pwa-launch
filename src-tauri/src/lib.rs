@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod db;
+pub mod local_server;
 pub mod models;
 pub mod utils;
 
@@ -11,6 +12,7 @@ use tauri_plugin_http::init as http_plugin;
 use tauri_plugin_shell::init as shell_plugin;
 use tokio::sync::RwLock;
 
+
 pub fn run() {
     #[cfg(target_os = "linux")]
     {
@@ -20,21 +22,95 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Info)
+                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout))
+                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                    file_name: Some("pwa_container".to_string()),
+                }))
+                .build(),
+        )
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(shell_plugin())
         .plugin(fs_plugin())
         .plugin(http_plugin())
+        .register_uri_scheme_protocol("static", |_app, request| {
+            commands::static_protocol::handle_static_request(request)
+        })
+        .register_asynchronous_uri_scheme_protocol("stream", move |_app, request, responder| {
+            match commands::stream_file_protocol::handle_stream_request(request) {
+                Ok(http_response) => responder.respond(http_response),
+                Err(e) => responder.respond(
+                    http::Response::builder()
+                        .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                        .header("Content-Type", "text/plain")
+                        .body(e.to_string().into_bytes())
+                        .unwrap(),
+                ),
+            }
+        })
         .register_uri_scheme_protocol("adapt", |_app, _request| {
-            // 返回 adapt.js 桥接脚本
-            let script = r#"(function(){if(window.__TAURI_ADAPT_INJECTED__)return;window.__TAURI_ADAPT_INJECTED__=!0,console.log("[Tauri Adapt] Bridge loaded");const generateId=()=>Date.now().toString(36)+Math.random().toString(36).substr(2),waitForParent=()=>new Promise(e=>{if(window.parent!==window){window.parent.postMessage({type:"ADAPT_READY"},"*");const t=n=>{n.data?.type==="ADAPT_PARENT_READY"&&(window.removeEventListener("message",t),e(!0))};window.addEventListener("message",t),setTimeout(()=>{window.removeEventListener("message",t),e(!1)},1e3)}else e(!1)}),tauriBridge={_ready:!1,_pending:new Map,async init(){this._ready=await waitForParent(),console.log("[Tauri Adapt] Parent ready:",this._ready)},async invoke(e,t={}){if(!this._ready)throw new Error("Tauri Adapt not ready");return new Promise((n,r)=>{const i=generateId(),o=setTimeout(()=>{this._pending.delete(i),r(new Error("Invoke timeout"))},3e4);this._pending.set(i,{resolve:n,reject:r,timeout:o}),window.parent.postMessage({type:"ADAPT_INVOKE",id:i,cmd:e,payload:t},"*")})},_handleResponse(e){const{id:t,result:n,error:r}=e,i=this._pending.get(t);i&&(clearTimeout(i.timeout),this._pending.delete(t),r?i.reject(new Error(r)):i.resolve(n))},async fetch(e,t={}){const n=e.toString();if(n.startsWith("tauri://")){const e=n.match(/tauri:\/\/(.+)/);if(e)return this.invoke(e[1],t).then(e=>new Response(JSON.stringify(e),{status:200,headers:{"Content-Type":"application/json"}}))}try{const e=new URL(n,window.location.href);if(e.origin!==window.location.origin){const e=await this.invoke("proxy_fetch",{url:n,method:t.method||"GET",headers:t.headers,body:t.body});return new Response(e.body,{status:e.status,headers:e.headers})}}catch(e){}return fetch(e,t)}};window.addEventListener("message",e=>{e.data?.type==="ADAPT_RESPONSE"&&tauriBridge._handleResponse(e.data)}),tauriBridge.init(),window.__TAURI__=tauriBridge,window.tauri=tauriBridge;const originalFetch=window.fetch;window.fetch=function(...e){return tauriBridge.fetch.apply(tauriBridge,e)},window.dispatchEvent(new CustomEvent("tauri-ready"))})();"#;
+            // 从文件读取 adapt.js
+            let mut possible_paths: Vec<std::path::PathBuf> = vec![];
+            
+            // 1. 尝试当前工作目录的 adapt.js
+            possible_paths.push(std::path::PathBuf::from("adapt.js"));
+            
+            // 2. 尝试从 exe 路径推导
+            if let Ok(exe) = std::env::current_exe() {
+                log::info!("[adapt] Current exe: {:?}", exe);
+                if let Some(exe_dir) = exe.parent() {
+                    // exe_dir = target/debug/
+                    possible_paths.push(exe_dir.join("resources/adapt.js"));
+                    
+                    if let Some(target_dir) = exe_dir.parent() {
+                        // target_dir = target/
+                        possible_paths.push(target_dir.join("resources/adapt.js"));
+                        possible_paths.push(target_dir.join("adapt.js"));
+                        
+                        if let Some(project_root) = target_dir.parent() {
+                            // project_root = 项目根目录
+                            possible_paths.push(project_root.join("adapt.js"));
+                            possible_paths.push(project_root.join("src-tauri").join("adapt.js"));
+                        }
+                    }
+                }
+            }
+            
+            // 3. 尝试使用 manifest_dir (编译时确定)
+            if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+                let manifest_path = std::path::PathBuf::from(&manifest_dir);
+                possible_paths.push(manifest_path.join("adapt.js"));
+                // 项目根目录是 src-tauri 的父目录
+                if let Some(project_root) = manifest_path.parent() {
+                    possible_paths.push(project_root.join("adapt.js"));
+                }
+            }
+            
+            log::info!("[adapt] Searching {} paths for adapt.js", possible_paths.len());
+            
+            let script = possible_paths.iter()
+                .find(|p| {
+                    let exists = p.exists();
+                    log::info!("[adapt] Checking {:?}: {}", p, exists);
+                    exists
+                })
+                .and_then(|p| {
+                    let content = std::fs::read_to_string(p).ok();
+                    log::info!("[adapt] Found at {:?}, content size: {:?}", p, content.as_ref().map(|c| c.len()));
+                    content
+                })
+                .unwrap_or_else(|| {
+                    log::error!("[adapt] adapt.js not found in any location!");
+                    "console.error('adapt.js not found');".to_string()
+                });
             
             http::Response::builder()
                 .header("Content-Type", "application/javascript")
                 .header("Cache-Control", "public, max-age=3600")
-                .header("Access-Control-Allow-Origin", "*")
-                .header("Access-Control-Allow-Methods", "GET, OPTIONS")
-                .header("Access-Control-Allow-Headers", "Content-Type")
-                .body(script.as_bytes().to_vec())
+                .body(script.into_bytes())
                 .expect("Failed to build response")
         })
         .setup(|app| {
@@ -51,6 +127,12 @@ pub fn run() {
                 String,
                 HashMap<String, HashMap<String, String>>,
             >::new()))); // CookieStore
+            
+            // 启动本地文件服务器
+            match local_server::init_local_server(8765) {
+                Ok(port) => log::info!("[LocalServer] Started on port {}", port),
+                Err(e) => log::error!("[LocalServer] Failed to start: {}", e),
+            }
             app.manage(Arc::new(RwLock::new(None::<commands::ProxySettings>))); // ProxyConfig
 
             Ok(())
@@ -79,6 +161,9 @@ pub fn run() {
             commands::opfs_read_file,
             commands::opfs_delete_file,
             commands::opfs_list_dir,
+            commands::open_file_dialog,
+            commands::read_file_content,
+            commands::resolve_local_file_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

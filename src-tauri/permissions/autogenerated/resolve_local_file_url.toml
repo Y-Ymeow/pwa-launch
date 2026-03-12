@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-resolve-local-file-url"
+description = "Allow resolve_local_file_url command"
+commands = { allow = ["resolve_local_file_url"] }

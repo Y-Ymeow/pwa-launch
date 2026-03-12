@@ -8,7 +8,23 @@
   "permissions": [
     "core:default",
     "shell:default",
-    "fs:default",
+    {
+      "identifier": "fs:default"
+    },
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [
+        {
+          "path": "**"
+        },
+        {
+          "path": "$AUDIO/**"
+        },
+        {
+          "path": "$VIDEO/**"
+        }
+      ]
+    },
     "http:default",
     "allow-install-pwa",
     "allow-uninstall-pwa",
@@ -33,6 +49,11 @@
     "allow-opfs-read-file",
     "allow-opfs-delete-file",
     "allow-opfs-list-dir",
-    "os:default"
+    "allow-resolve-local-file-url",
+    "allow-open-file-dialog",
+    "allow-read-file-content",
+    "os:default",
+    "log:default",
+    "dialog:default"
   ]
 }

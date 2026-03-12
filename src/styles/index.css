@@ -11,14 +11,16 @@
   --danger-hover: #ee3a3a;
   --success-color: #4aff88;
   --bg-color: #1a1a2e;
-  --card-bg: #16213e;
+  --card-bg: #white;
   --text-color: #eee;
   --text-secondary: #aaa;
   --border-color: #333;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
   background: var(--bg-color);
   color: var(--text-color);
   min-height: 100vh;
@@ -41,7 +43,11 @@ body {
 .header h1 {
   font-size: 2.5rem;
   margin-bottom: 0.5rem;
-  background: linear-gradient(135deg, var(--primary-color), var(--success-color));
+  background: linear-gradient(
+    135deg,
+    var(--primary-color),
+    var(--success-color)
+  );
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -96,7 +102,11 @@ body {
 /* Running Section */
 .running-section {
   margin-bottom: 2rem;
-  background: linear-gradient(135deg, rgba(255, 74, 74, 0.1), rgba(255, 159, 74, 0.1));
+  background: linear-gradient(
+    135deg,
+    rgba(255, 74, 74, 0.1),
+    rgba(255, 159, 74, 0.1)
+  );
   border: 1px solid var(--danger-color);
   border-radius: 12px;
   padding: 1.5rem;
@@ -104,7 +114,8 @@ body {
 }
 
 @keyframes pulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 10px rgba(255, 74, 74, 0.2);
   }
   50% {
@@ -142,8 +153,13 @@ body {
 }
 
 @keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 
 .window-id {
@@ -231,7 +247,8 @@ body {
   border-bottom: 1px solid var(--border-color);
 }
 
-.loading, .empty-state {
+.loading,
+.empty-state {
   text-align: center;
   padding: 3rem;
   color: var(--text-secondary);
@@ -249,7 +266,9 @@ body {
   border-radius: 12px;
   padding: 1.5rem;
   cursor: pointer;
-  transition: transform 0.2s, border-color 0.2s;
+  transition:
+    transform 0.2s,
+    border-color 0.2s;
 }
 
 .app-card:hover {
@@ -405,15 +424,15 @@ body {
   .header h1 {
     font-size: 1.8rem;
   }
-  
+
   .install-form {
     flex-direction: column;
   }
-  
+
   .apps-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .main {
     padding: 1rem;
   }

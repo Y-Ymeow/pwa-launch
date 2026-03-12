@@ -26,7 +26,16 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": {},
+      "dangerousDisableAssetCspModification": true,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "**",
+          "$AUDIO/**",
+          "$VIDEO/**"
+        ]
+      }
     }
   },
   "bundle": {
@@ -43,7 +52,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [],
+    "resources": [
+      "../adapt.js"
+    ],
     "category": "Utility",
     "linux": {
       "appimage": {
