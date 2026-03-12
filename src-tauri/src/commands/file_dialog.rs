@@ -66,7 +66,13 @@ pub async fn open_file_dialog(
                         log::info!("  - {}", path_str);
                         // 处理 Android content:// URI
                         if path_str.starts_with("content://") {
-                            resolve_android_content_uri(&app, &path_str).ok()
+                            match resolve_android_content_uri(&app, &path_str) {
+                                Ok(resolved) => Some(resolved),
+                                Err(e) => {
+                                    log::error!("Failed to resolve content URI '{}': {}", path_str, e);
+                                    None
+                                }
+                            }
                         } else {
                             Some(path_str)
                         }
