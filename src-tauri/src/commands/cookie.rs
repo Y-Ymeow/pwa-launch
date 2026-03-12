@@ -122,3 +122,37 @@ pub async fn disable_proxy(
     log::info!("禁用代理");
     Ok(CommandResponse::success(true))
 }
+
+/// 从 WebView 同步 Cookies（验证助手使用）
+#[tauri::command]
+pub async fn sync_webview_cookies(
+    domain: String,
+    cookies: String,
+    user_agent: Option<String>,
+    cookie_store: State<'_, CookieStore>,
+) -> Result<CommandResponse<bool>, String> {
+    log::info!("同步 WebView Cookies for domain: {}", domain);
+    log::info!("User-Agent: {:?}", user_agent);
+    
+    let mut store = cookie_store.write().await;
+    // 使用 "webview" 作为特殊的 app_id 来存储验证后的 cookies
+    let app_cookies = store.entry("webview".to_string()).or_insert_with(HashMap::new);
+    let domain_cookies = app_cookies
+        .entry(domain.clone())
+        .or_insert_with(HashMap::new);
+
+    // 解析 cookies 字符串 (格式: "key1=value1; key2=value2")
+    for cookie in cookies.split(';') {
+        let cookie = cookie.trim();
+        if let Some(eq_pos) = cookie.find('=') {
+            let key = cookie[..eq_pos].trim().to_string();
+            let value = cookie[eq_pos + 1..].trim().to_string();
+            if !key.is_empty() {
+                domain_cookies.insert(key, value);
+            }
+        }
+    }
+
+    log::info!("WebView Cookies 同步完成: {} 个 cookies", domain_cookies.len());
+    Ok(CommandResponse::success(true))
+}

@@ -30,8 +30,10 @@ pub async fn proxy_fetch(
 
     let domain = extract_domain(&url);
     let cookies = cookie_store.read().await;
-    let cookie_header = cookies
-        .get("default")
+    
+    // 优先使用 WebView 同步的 cookies（验证助手同步的）
+    let webview_cookie_header = cookies
+        .get("webview")
         .and_then(|app_cookies| app_cookies.get(&domain))
         .map(|c| {
             c.iter()
@@ -39,7 +41,25 @@ pub async fn proxy_fetch(
                 .collect::<Vec<_>>()
                 .join("; ")
         })
-        .unwrap_or_default();
+        .filter(|s| !s.is_empty());
+    
+    // 如果没有 WebView cookies，使用默认的
+    let cookie_header = webview_cookie_header.or_else(|| {
+        cookies
+            .get("default")
+            .and_then(|app_cookies| app_cookies.get(&domain))
+            .map(|c| {
+                c.iter()
+                    .map(|(k, v)| format!("{}={}", k, v))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+    }).unwrap_or_default();
+    
+    if !cookie_header.is_empty() {
+        log::info!("使用 Cookies: {}", cookie_header);
+    }
+    
     drop(cookies);
 
     let mut client_builder = reqwest::Client::builder().default_headers({

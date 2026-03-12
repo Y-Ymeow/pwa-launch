@@ -687,4 +687,142 @@
   };
 
   console.log("[PWA Adapt] Bridge created, waiting for parent...");
+
+  // ===== 验证助手：悬浮按钮 + Cookie 同步 =====
+  function createVerifyAssistButton() {
+    // 检查是否已存在
+    if (document.getElementById('pwa-verify-assist-btn')) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'pwa-verify-assist-btn';
+    btn.innerHTML = '✓ 验证完成';
+    btn.style.cssText = `
+      position: fixed !important;
+      bottom: 20px !important;
+      right: 20px !important;
+      z-index: 2147483647 !important;
+      padding: 12px 24px !important;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+      color: white !important;
+      border: none !important;
+      border-radius: 25px !important;
+      font-size: 14px !important;
+      font-weight: bold !important;
+      cursor: pointer !important;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
+      transition: all 0.3s ease !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    `;
+
+    btn.addEventListener('mouseover', () => {
+      btn.style.transform = 'scale(1.05)';
+      btn.style.boxShadow = '0 6px 20px rgba(0,0,0,0.4)';
+    });
+
+    btn.addEventListener('mouseout', () => {
+      btn.style.transform = 'scale(1)';
+      btn.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
+    });
+
+    btn.onclick = async () => {
+      try {
+        // 收集所有 cookies
+        const cookies = document.cookie;
+        const url = window.location.href;
+        const domain = window.location.hostname;
+
+        console.log('[PWA Adapt] Syncing cookies for domain:', domain);
+
+        // 发送到父容器
+        window.parent.postMessage({
+          type: 'ADAPT_SYNC_COOKIES',
+          payload: {
+            domain: domain,
+            url: url,
+            cookies: cookies,
+            userAgent: navigator.userAgent
+          }
+        }, '*');
+
+        // 显示成功反馈
+        btn.innerHTML = '✓ 已同步';
+        btn.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important';
+
+        setTimeout(() => {
+          btn.innerHTML = '✓ 验证完成';
+          btn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important';
+        }, 2000);
+
+      } catch (err) {
+        console.error('[PWA Adapt] Failed to sync cookies:', err);
+        btn.innerHTML = '✗ 失败';
+        btn.style.background = 'linear-gradient(135deg, #eb3349 0%, #f45c43 100%) !important';
+
+        setTimeout(() => {
+          btn.innerHTML = '✓ 验证完成';
+          btn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important';
+        }, 2000);
+      }
+    };
+
+    // 延迟添加，确保页面加载完成
+    setTimeout(() => {
+      if (document.body) {
+        document.body.appendChild(btn);
+        console.log('[PWA Adapt] Verify assist button added');
+      }
+    }, 1000);
+  }
+
+  // 检测是否需要显示验证按钮（某些验证页面）
+  function shouldShowVerifyButton() {
+    // 检测常见的验证页面特征
+    const title = document.title.toLowerCase();
+    const bodyText = document.body?.textContent?.toLowerCase() || '';
+
+    const verifyKeywords = [
+      'just a moment',
+      'checking your browser',
+      'captcha',
+      '验证码',
+      '安全验证',
+      '人机验证',
+      'cloudflare',
+      'please wait'
+    ];
+
+    return verifyKeywords.some(kw => title.includes(kw) || bodyText.includes(kw));
+  }
+
+  // 自动检测并显示按钮
+  function initVerifyAssist() {
+    // 如果是验证页面，立即显示
+    if (shouldShowVerifyButton()) {
+      createVerifyAssistButton();
+      return;
+    }
+
+    // 否则延迟检查（某些验证是异步加载的）
+    setTimeout(() => {
+      if (shouldShowVerifyButton()) {
+        createVerifyAssistButton();
+      }
+    }, 3000);
+  }
+
+  // 启动验证助手
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initVerifyAssist);
+  } else {
+    initVerifyAssist();
+  }
+
+  // 暴露全局 API，允许手动触发
+  window.pwaVerifyAssist = {
+    showButton: createVerifyAssistButton,
+    syncCookies: () => {
+      const btn = document.getElementById('pwa-verify-assist-btn');
+      if (btn) btn.click();
+    }
+  };
 })();

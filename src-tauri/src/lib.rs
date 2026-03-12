@@ -114,6 +114,7 @@ pub fn run() {
             commands::open_file_dialog,
             commands::read_file_content,
             commands::resolve_local_file_url,
+            commands::sync_webview_cookies,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
