@@ -21,6 +21,15 @@ pub fn run() {
         std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
     }
 
+    // Android 日志初始化
+    #[cfg(target_os = "android")]
+    {
+        android_logger::init_once(
+            android_logger::Config::default()
+                .with_max_level(log::LevelFilter::Debug),
+        );
+    }
+
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
