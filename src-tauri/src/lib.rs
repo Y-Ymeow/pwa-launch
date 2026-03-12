@@ -52,65 +52,15 @@ pub fn run() {
             }
         })
         .register_uri_scheme_protocol("adapt", |_app, _request| {
-            // 从文件读取 adapt.js
-            let mut possible_paths: Vec<std::path::PathBuf> = vec![];
+            // 编译时嵌入 adapt.js 内容，避免运行时文件路径问题（Android 无法访问文件）
+            const ADAPT_JS: &str = include_str!("../../adapt.js");
             
-            // 1. 尝试当前工作目录的 adapt.js
-            possible_paths.push(std::path::PathBuf::from("adapt.js"));
-            
-            // 2. 尝试从 exe 路径推导
-            if let Ok(exe) = std::env::current_exe() {
-                log::info!("[adapt] Current exe: {:?}", exe);
-                if let Some(exe_dir) = exe.parent() {
-                    // exe_dir = target/debug/
-                    possible_paths.push(exe_dir.join("resources/adapt.js"));
-                    
-                    if let Some(target_dir) = exe_dir.parent() {
-                        // target_dir = target/
-                        possible_paths.push(target_dir.join("resources/adapt.js"));
-                        possible_paths.push(target_dir.join("adapt.js"));
-                        
-                        if let Some(project_root) = target_dir.parent() {
-                            // project_root = 项目根目录
-                            possible_paths.push(project_root.join("adapt.js"));
-                            possible_paths.push(project_root.join("src-tauri").join("adapt.js"));
-                        }
-                    }
-                }
-            }
-            
-            // 3. 尝试使用 manifest_dir (编译时确定)
-            if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-                let manifest_path = std::path::PathBuf::from(&manifest_dir);
-                possible_paths.push(manifest_path.join("adapt.js"));
-                // 项目根目录是 src-tauri 的父目录
-                if let Some(project_root) = manifest_path.parent() {
-                    possible_paths.push(project_root.join("adapt.js"));
-                }
-            }
-            
-            log::info!("[adapt] Searching {} paths for adapt.js", possible_paths.len());
-            
-            let script = possible_paths.iter()
-                .find(|p| {
-                    let exists = p.exists();
-                    log::info!("[adapt] Checking {:?}: {}", p, exists);
-                    exists
-                })
-                .and_then(|p| {
-                    let content = std::fs::read_to_string(p).ok();
-                    log::info!("[adapt] Found at {:?}, content size: {:?}", p, content.as_ref().map(|c| c.len()));
-                    content
-                })
-                .unwrap_or_else(|| {
-                    log::error!("[adapt] adapt.js not found in any location!");
-                    "console.error('adapt.js not found');".to_string()
-                });
+            log::info!("[adapt] Serving adapt.js, size: {} bytes", ADAPT_JS.len());
             
             http::Response::builder()
                 .header("Content-Type", "application/javascript")
                 .header("Cache-Control", "public, max-age=3600")
-                .body(script.into_bytes())
+                .body(ADAPT_JS.as_bytes().to_vec())
                 .expect("Failed to build response")
         })
         .setup(|app| {
