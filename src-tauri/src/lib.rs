@@ -30,8 +30,12 @@ pub fn run() {
         );
     }
 
-    tauri::Builder::default()
-        .plugin(
+    let mut builder = tauri::Builder::default();
+    
+    // 非 Android 平台使用 tauri_plugin_log
+    #[cfg(not(target_os = "android"))]
+    {
+        builder = builder.plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
                 .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout))
@@ -39,7 +43,10 @@ pub fn run() {
                     file_name: Some("pwa_container".to_string()),
                 }))
                 .build(),
-        )
+        );
+    }
+    
+    builder
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(shell_plugin())
