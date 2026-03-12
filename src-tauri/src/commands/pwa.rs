@@ -1,19 +1,9 @@
 use rusqlite::Connection;
-use serde::Serialize;
-use std::collections::HashMap;
-use tauri::{AppHandle, Emitter, Manager, Runtime, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::db::{get_app_data_dir, DbConnection};
 use crate::models::{AppInfo, CommandResponse, InstallRequest};
-use crate::utils::{create_app_dirs, generate_app_id, now_timestamp, remove_app_dirs};
-
-#[derive(Serialize)]
-struct ShortcutPluginArgs {
-    #[serde(rename = "appId")]
-    app_id: String,
-    name: String,
-    url: String,
-}
+use crate::utils::{create_app_dirs, generate_app_id, now_timestamp};
 
 /// 安装 PWA 应用
 #[tauri::command]
@@ -200,7 +190,7 @@ pub fn list_running_pwas(app: AppHandle) -> Result<CommandResponse<Vec<String>>,
 }
 
 #[tauri::command]
-pub fn update_pwa(app_id: String) -> Result<CommandResponse<bool>, String> {
+pub fn update_pwa(_app_id: String) -> Result<CommandResponse<bool>, String> {
     Ok(CommandResponse::success(true))
 }
 

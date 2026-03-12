@@ -6,7 +6,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{connect_async, accept_async, tungstenite::Message};
 
-use super::{extract_domain, CommandResponse, CookieStore, ProxyConfig};
+use super::CommandResponse;
 
 pub type StreamProxyState = Arc<RwLock<HashMap<String, StreamProxyHandle>>>;
 
@@ -28,8 +28,8 @@ pub struct StreamProxyStartResponse {
 }
 
 async fn proxy_websocket_stream(
-    mut target_stream: tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>,
-    mut client_stream: tokio_tungstenite::WebSocketStream<TcpStream>,
+    target_stream: tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>,
+    client_stream: tokio_tungstenite::WebSocketStream<TcpStream>,
     mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     let (mut target_write, mut target_read) = target_stream.split();
@@ -153,7 +153,7 @@ pub async fn start_stream_proxy(
     if target_url.starts_with("ws://") || target_url.starts_with("wss://") {
         let mut state = stream_proxy_state.write().await;
         
-        for (id, handle) in state.iter() {
+        for (_id, handle) in state.iter() {
             if handle.target_url == target_url {
                 return Ok(CommandResponse::success(StreamProxyStartResponse {
                     local_port: handle.local_port,

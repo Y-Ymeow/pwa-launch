@@ -6,7 +6,7 @@ pub mod utils;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use tauri::{Emitter, Manager, Runtime};
+use tauri::Manager;
 use tauri_plugin_fs::init as fs_plugin;
 use tauri_plugin_http::init as http_plugin;
 use tauri_plugin_shell::init as shell_plugin;

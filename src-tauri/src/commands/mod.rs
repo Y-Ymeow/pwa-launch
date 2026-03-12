@@ -1,14 +1,9 @@
-use rusqlite::Connection;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tauri::{Manager, State};
 use tokio::sync::RwLock;
 
-use crate::db::{get_app_data_dir, get_backup_dir, DbConnection};
-use crate::models::{AppInfo, BackupInfo, CommandResponse, InstallRequest, ShortcutInfo};
-use crate::utils::{
-    calculate_dir_size, create_app_dirs, generate_app_id, now_timestamp, remove_app_dirs,
-};
+use crate::db::get_app_data_dir;
+use crate::models::CommandResponse;
 
 // 全局 Cookie 存储 - 按 app_id + 域名 隔离
 pub type CookieStore = Arc<RwLock<HashMap<String, HashMap<String, HashMap<String, String>>>>>;

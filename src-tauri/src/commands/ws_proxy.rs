@@ -1,8 +1,7 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use futures_util::{SinkExt, StreamExt};
-use tauri::{Emitter, State};
+use tauri::State;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, RwLock};
 use tokio_tungstenite::{accept_async, tungstenite::Message};

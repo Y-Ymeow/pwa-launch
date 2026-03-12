@@ -55,7 +55,7 @@ pub fn handle_stream_request(
         _ => "application/octet-stream",
     };
 
-    let mut response_builder = Response::builder()
+    let response_builder = Response::builder()
         .header(CONTENT_TYPE, mime_type)
         .header(ACCEPT_RANGES, "bytes")
         .header(ACCESS_CONTROL_ALLOW_ORIGIN, "*");

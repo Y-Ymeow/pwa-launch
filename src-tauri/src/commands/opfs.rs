@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use tauri::Manager;
 
 use super::get_app_data_dir;

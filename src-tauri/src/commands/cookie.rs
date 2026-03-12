@@ -1,7 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use tauri::State;
-use tokio::sync::RwLock;
 
 use super::{extract_domain, CommandResponse, CookieStore, ProxyConfig, ProxySettings};
 
