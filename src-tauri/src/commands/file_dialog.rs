@@ -1,4 +1,6 @@
 use std::path::PathBuf;
+use tauri::Manager;
+use tauri_plugin_fs::FsExt;
 
 use super::CommandResponse;
 
@@ -62,7 +64,12 @@ pub async fn open_file_dialog(
                     .filter_map(|fp| {
                         let path_str = fp.into_path().ok()?.to_string_lossy().to_string();
                         log::info!("  - {}", path_str);
-                        Some(path_str)
+                        // 处理 Android content:// URI
+                        if path_str.starts_with("content://") {
+                            resolve_android_content_uri(&app, &path_str).ok()
+                        } else {
+                            Some(path_str)
+                        }
                     })
                     .collect()
             }
@@ -78,7 +85,20 @@ pub async fn open_file_dialog(
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default();
                 log::info!("Selected file: {}", path_str);
-                if path_str.is_empty() { vec![] } else { vec![path_str] }
+                if path_str.is_empty() { 
+                    vec![] 
+                } else if path_str.starts_with("content://") {
+                    // 处理 Android content:// URI
+                    match resolve_android_content_uri(&app, &path_str) {
+                        Ok(resolved) => vec![resolved],
+                        Err(e) => {
+                            log::error!("Failed to resolve content URI: {}", e);
+                            vec![]
+                        }
+                    }
+                } else {
+                    vec![path_str]
+                }
             }
             None => {
                 log::info!("No file selected");
@@ -89,6 +109,33 @@ pub async fn open_file_dialog(
 
     log::info!("Returning {} paths", paths.len());
     Ok(CommandResponse::success(OpenDialogResponse { paths }))
+}
+
+/// 处理 Android content:// URI，将文件复制到应用私有目录并返回真实路径
+fn resolve_android_content_uri(app: &tauri::AppHandle, uri: &str) -> Result<String, String> {
+    log::info!("[Android] Resolving content URI: {}", uri);
+    
+    // 获取应用缓存目录
+    let cache_dir = app.path().cache_dir().map_err(|e| format!("Failed to get cache dir: {}", e))?;
+    
+    // 从 URI 提取文件名
+    let file_name = uri.split('/').last().unwrap_or("temp_file");
+    let file_name = urlencoding::decode(file_name).unwrap_or_else(|_| file_name.into());
+    let temp_path = cache_dir.join(file_name.as_ref());
+    
+    log::info!("[Android] Copying to: {:?}", temp_path);
+    
+    // 使用 tauri-plugin-fs 读取 content URI
+    let fs = app.fs();
+    let uri_url: tauri::Url = uri.parse().map_err(|e| format!("Invalid URI: {}", e))?;
+    let file_content = fs.read(uri_url).map_err(|e| format!("Failed to read content URI: {}", e))?;
+    
+    // 写入临时文件
+    std::fs::write(&temp_path, &file_content).map_err(|e| format!("Failed to write temp file: {}", e))?;
+    
+    let result = temp_path.to_string_lossy().to_string();
+    log::info!("[Android] Resolved to: {}", result);
+    Ok(result)
 }
 
 #[tauri::command]
