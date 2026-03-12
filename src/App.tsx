@@ -719,8 +719,6 @@ function App() {
       <footer className="footer">
         <p>PWA Container v0.1.0 - 最多 {MAX_IFRAMES} 个后台应用</p>
       </footer>
-
-      <Test />
     </div>
   );
 }
