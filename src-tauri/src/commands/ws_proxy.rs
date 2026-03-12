@@ -67,26 +67,11 @@ async fn proxy_request(
 
     let proxy = proxy_config.read().await;
     if let Some(proxy_settings) = proxy.as_ref() {
-        let proxy_url = if let (Some(user), Some(pass)) =
-            (&proxy_settings.username, &proxy_settings.password)
-        {
-            format!(
-                "{}://{}:{}@{}",
-                proxy_settings.url.split("://").next().unwrap_or("http"),
-                user,
-                pass,
-                proxy_settings
-                    .url
-                    .split("://")
-                    .last()
-                    .unwrap_or(&proxy_settings.url)
-            )
-        } else {
-            proxy_settings.url.clone()
-        };
-
-        client_builder = client_builder
-            .proxy(reqwest::Proxy::all(&proxy_url).map_err(|e| format!("代理配置失败：{}", e))?);
+        if proxy_settings.enabled {
+            let proxy_url = proxy_settings.get_proxy_url();
+            client_builder = client_builder
+                .proxy(reqwest::Proxy::all(&proxy_url).map_err(|e| format!("代理配置失败：{}", e))?);
+        }
     }
     drop(proxy);
 

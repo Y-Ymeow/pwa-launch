@@ -13,9 +13,43 @@ pub type ProxyConfig = Arc<RwLock<Option<ProxySettings>>>;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ProxySettings {
-    pub url: String,
+    pub enabled: bool,
+    pub proxy_type: ProxyType,
+    pub host: String,
+    pub port: u16,
     pub username: Option<String>,
     pub password: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProxyType {
+    Http,
+    Https,
+    Socks5,
+}
+
+impl Default for ProxyType {
+    fn default() -> Self {
+        ProxyType::Http
+    }
+}
+
+impl ProxySettings {
+    /// 生成代理 URL
+    pub fn get_proxy_url(&self) -> String {
+        let scheme = match self.proxy_type {
+            ProxyType::Http => "http",
+            ProxyType::Https => "https",
+            ProxyType::Socks5 => "socks5",
+        };
+        
+        if let (Some(user), Some(pass)) = (&self.username, &self.password) {
+            format!("{}://{}:{}@{}:{}", scheme, user, pass, self.host, self.port)
+        } else {
+            format!("{}://{}:{}", scheme, self.host, self.port)
+        }
+    }
 }
 
 // 子模块

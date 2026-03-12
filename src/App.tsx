@@ -147,6 +147,16 @@ interface PwaSnapshot {
 
 const MAX_IFRAMES = 4; // 最多4个iframe
 
+// 代理设置类型
+interface ProxySettings {
+  enabled: boolean;
+  proxy_type: "http" | "https" | "socks5";
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+}
+
 function App() {
   const [apps, setApps] = useState<AppInfo[]>([]);
   const [installUrl, setInstallUrl] = useState("");
@@ -158,6 +168,17 @@ function App() {
 
   // 运行的PWA（最多4个有iframe）
   const [runningPwas, setRunningPwas] = useState<RunningPwa[]>([]);
+
+  // 代理设置
+  const [showProxySettings, setShowProxySettings] = useState(false);
+  const [proxySettings, setProxySettings] = useState<ProxySettings>({
+    enabled: false,
+    proxy_type: "http",
+    host: "",
+    port: 8080,
+    username: "",
+    password: "",
+  });
   // 当前激活的PWA
   const [activePwaId, setActivePwaId] = useState<string | null>(null);
   // 快照（已销毁的PWA状态）
@@ -181,8 +202,70 @@ function App() {
     }
   };
 
+  // 加载代理设置
+  const loadProxySettings = async () => {
+    try {
+      const response = await invoke<CommandResponse<ProxySettings | null>>("get_proxy");
+      if (response.success && response.data) {
+        setProxySettings(response.data);
+      }
+    } catch (error) {
+      console.error("加载代理设置失败:", error);
+    }
+  };
+
+  // 保存代理设置
+  const saveProxySettings = async () => {
+    try {
+      await invoke("set_proxy", {
+        enabled: proxySettings.enabled,
+        proxy_type: proxySettings.proxy_type,
+        host: proxySettings.host,
+        port: proxySettings.port,
+        username: proxySettings.username || null,
+        password: proxySettings.password || null,
+      });
+      showMessage("success", "代理设置已保存");
+      setShowProxySettings(false);
+    } catch (error) {
+      showMessage("error", `保存代理设置失败：${error}`);
+    }
+  };
+
+  // 测试代理连接
+  const testProxy = async () => {
+    try {
+      // 先临时保存设置
+      await invoke("set_proxy", {
+        enabled: proxySettings.enabled,
+        proxy_type: proxySettings.proxy_type,
+        host: proxySettings.host,
+        port: proxySettings.port,
+        username: proxySettings.username || null,
+        password: proxySettings.password || null,
+      });
+      
+      // 测试请求
+      const response = await invoke<CommandResponse<{status: number}>>("proxy_fetch", {
+        url: "http://httpbin.org/ip",
+        method: "GET",
+        headers: {},
+        body: null,
+      });
+      
+      if (response.success) {
+        showMessage("success", `代理测试成功！状态码: ${response.data?.status}`);
+      } else {
+        showMessage("error", "代理测试失败");
+      }
+    } catch (error) {
+      showMessage("error", `代理测试失败：${error}`);
+    }
+  };
+
   useEffect(() => {
     loadApps();
+    loadProxySettings();
 
     // 全局监听来自 iframe 的 adapt 请求
     const handleMessage = async (event: MessageEvent) => {
@@ -714,6 +797,114 @@ function App() {
             </div>
           )}
         </DraggableSwitcher>
+      )}
+
+      {/* 代理设置按钮 */}
+      <button
+        className="proxy-settings-btn"
+        onClick={() => setShowProxySettings(true)}
+        title="代理设置"
+      >
+        🔧
+      </button>
+
+      {/* 代理设置面板 */}
+      {showProxySettings && (
+        <div className="proxy-settings-modal" onClick={() => setShowProxySettings(false)}>
+          <div className="proxy-settings-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="proxy-settings-header">
+              <h3>代理设置</h3>
+              <button onClick={() => setShowProxySettings(false)}>✕</button>
+            </div>
+            <div className="proxy-settings-body">
+              <label className="proxy-enable-label">
+                <input
+                  type="checkbox"
+                  checked={proxySettings.enabled}
+                  onChange={(e) =>
+                    setProxySettings({ ...proxySettings, enabled: e.target.checked })
+                  }
+                />
+                启用代理
+              </label>
+
+              <div className="proxy-field">
+                <label>代理类型：</label>
+                <select
+                  value={proxySettings.proxy_type}
+                  onChange={(e) =>
+                    setProxySettings({
+                      ...proxySettings,
+                      proxy_type: e.target.value as "http" | "https" | "socks5",
+                    })
+                  }
+                >
+                  <option value="http">HTTP</option>
+                  <option value="https">HTTPS</option>
+                  <option value="socks5">SOCKS5</option>
+                </select>
+              </div>
+
+              <div className="proxy-field">
+                <label>主机地址：</label>
+                <input
+                  type="text"
+                  placeholder="127.0.0.1"
+                  value={proxySettings.host}
+                  onChange={(e) =>
+                    setProxySettings({ ...proxySettings, host: e.target.value })
+                  }
+                />
+              </div>
+
+              <div className="proxy-field">
+                <label>端口：</label>
+                <input
+                  type="number"
+                  placeholder="8080"
+                  value={proxySettings.port}
+                  onChange={(e) =>
+                    setProxySettings({
+                      ...proxySettings,
+                      port: parseInt(e.target.value) || 0,
+                    })
+                  }
+                />
+              </div>
+
+              <div className="proxy-field">
+                <label>用户名（可选）：</label>
+                <input
+                  type="text"
+                  value={proxySettings.username}
+                  onChange={(e) =>
+                    setProxySettings({ ...proxySettings, username: e.target.value })
+                  }
+                />
+              </div>
+
+              <div className="proxy-field">
+                <label>密码（可选）：</label>
+                <input
+                  type="password"
+                  value={proxySettings.password}
+                  onChange={(e) =>
+                    setProxySettings({ ...proxySettings, password: e.target.value })
+                  }
+                />
+              </div>
+
+              <div className="proxy-actions">
+                <button className="proxy-test-btn" onClick={testProxy}>
+                  测试连接
+                </button>
+                <button className="proxy-save-btn" onClick={saveProxySettings}>
+                  保存设置
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       <footer className="footer">

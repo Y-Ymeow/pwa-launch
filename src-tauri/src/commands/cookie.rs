@@ -88,14 +88,20 @@ pub async fn get_all_cookies(
 /// 设置代理
 #[tauri::command]
 pub async fn set_proxy(
-    url: Option<String>,
+    enabled: bool,
+    proxy_type: super::ProxyType,
+    host: String,
+    port: u16,
     username: Option<String>,
     password: Option<String>,
     proxy_config: State<'_, ProxyConfig>,
 ) -> Result<CommandResponse<bool>, String> {
     let mut config = proxy_config.write().await;
-    *config = url.map(|u| ProxySettings {
-        url: u,
+    *config = Some(ProxySettings {
+        enabled,
+        proxy_type,
+        host,
+        port,
         username,
         password,
     });
@@ -118,8 +124,10 @@ pub async fn disable_proxy(
     proxy_config: State<'_, ProxyConfig>,
 ) -> Result<CommandResponse<bool>, String> {
     let mut config = proxy_config.write().await;
-    *config = None;
-    log::info!("禁用代理");
+    if let Some(ref mut settings) = *config {
+        settings.enabled = false;
+        log::info!("禁用代理");
+    }
     Ok(CommandResponse::success(true))
 }
 
