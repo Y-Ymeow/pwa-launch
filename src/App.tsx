@@ -184,6 +184,23 @@ function App() {
     username: "",
     password: "",
   });
+
+  // 加载代理设置
+  const loadProxySettings = async () => {
+    try {
+      const response = await invoke<CommandResponse<ProxySettings | null>>("get_proxy");
+      if (response.success && response.data) {
+        // 确保 username 和 password 不为 null
+        setProxySettings({
+          ...response.data,
+          username: response.data.username || "",
+          password: response.data.password || "",
+        });
+      }
+    } catch (error) {
+      console.error("加载代理设置失败:", error);
+    }
+  };
   // 当前激活的PWA
   const [activePwaId, setActivePwaId] = useState<string | null>(null);
   // 快照（已销毁的PWA状态）
@@ -204,18 +221,6 @@ function App() {
       }
     } catch (error) {
       showMessage("error", `加载应用列表失败：${error}`);
-    }
-  };
-
-  // 加载代理设置
-  const loadProxySettings = async () => {
-    try {
-      const response = await invoke<CommandResponse<ProxySettings | null>>("get_proxy");
-      if (response.success && response.data) {
-        setProxySettings(response.data);
-      }
-    } catch (error) {
-      console.error("加载代理设置失败:", error);
     }
   };
 
@@ -249,17 +254,23 @@ function App() {
         username: proxySettings.username || null,
         password: proxySettings.password || null,
       });
-      
+
       // 测试请求
-      const response = await invoke<CommandResponse<{status: number}>>("proxy_fetch", {
-        url: "http://httpbin.org/ip",
-        method: "GET",
-        headers: {},
-        body: null,
-      });
-      
+      const response = await invoke<CommandResponse<{ status: number }>>(
+        "proxy_fetch",
+        {
+          url: "http://httpbin.org/ip",
+          method: "GET",
+          headers: {},
+          body: null,
+        },
+      );
+
       if (response.success) {
-        showMessage("success", `代理测试成功！状态码: ${response.data?.status}`);
+        showMessage(
+          "success",
+          `代理测试成功！状态码: ${response.data?.status}`,
+        );
       } else {
         showMessage("error", "代理测试失败");
       }
@@ -805,7 +816,7 @@ function App() {
       )}
 
       {/* 代理设置按钮 - 只在主窗口显示，不在 iframe 中显示 */}
-      {window.parent === window && (
+      {activePwaId === null && (
         <button
           className="proxy-settings-btn"
           onClick={() => setShowProxySettings(true)}
@@ -817,8 +828,14 @@ function App() {
 
       {/* 代理设置面板 */}
       {showProxySettings && (
-        <div className="proxy-settings-modal" onClick={() => setShowProxySettings(false)}>
-          <div className="proxy-settings-panel" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="proxy-settings-modal"
+          onClick={() => setShowProxySettings(false)}
+        >
+          <div
+            className="proxy-settings-panel"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="proxy-settings-header">
               <h3>代理设置</h3>
               <button onClick={() => setShowProxySettings(false)}>✕</button>
@@ -829,7 +846,10 @@ function App() {
                   type="checkbox"
                   checked={proxySettings.enabled}
                   onChange={(e) =>
-                    setProxySettings({ ...proxySettings, enabled: e.target.checked })
+                    setProxySettings({
+                      ...proxySettings,
+                      enabled: e.target.checked,
+                    })
                   }
                 />
                 启用代理
@@ -885,7 +905,10 @@ function App() {
                   type="text"
                   value={proxySettings.username}
                   onChange={(e) =>
-                    setProxySettings({ ...proxySettings, username: e.target.value })
+                    setProxySettings({
+                      ...proxySettings,
+                      username: e.target.value,
+                    })
                   }
                 />
               </div>
@@ -896,7 +919,10 @@ function App() {
                   type="password"
                   value={proxySettings.password}
                   onChange={(e) =>
-                    setProxySettings({ ...proxySettings, password: e.target.value })
+                    setProxySettings({
+                      ...proxySettings,
+                      password: e.target.value,
+                    })
                   }
                 />
               </div>
@@ -922,4 +948,3 @@ function App() {
 }
 
 export default App;
-

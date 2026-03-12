@@ -352,7 +352,7 @@
     tauriBridge.resolve_local_file_url.bind(tauriBridge);
 
   // 覆盖 fetch - 但排除特殊协议避免死循环
-  window.fetch = function (url, ...rest) {
+  window.fetch = async function (url, ...rest) {
     const urlStr = url.toString();
 
     // 不拦截这些特殊协议
@@ -366,14 +366,22 @@
       return originalFetch(url, ...rest);
     }
 
-    // 如果 tauri 已就绪，使用 tauri bridge
-    if (tauriBridge._ready) {
-      // tauriBridge.fetch 内部使用的是 originalFetch，不会递归
-      return tauriBridge.fetch(url, ...rest);
+    // 如果 tauri 未就绪，等待它
+    if (!tauriBridge._ready) {
+      console.log("[PWA Adapt] Waiting for bridge before fetch...");
+      let attempts = 0;
+      while (!tauriBridge._ready && attempts < 50) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        attempts++;
+      }
+      if (!tauriBridge._ready) {
+        console.error("[PWA Adapt] Bridge timeout, using native fetch");
+        return originalFetch(url, ...rest);
+      }
     }
 
-    // 否则使用原生 fetch
-    return originalFetch(url, ...rest);
+    // tauriBridge.fetch 内部使用的是 originalFetch，不会递归
+    return tauriBridge.fetch(url, ...rest);
   };
 
   // 拦截 XMLHttpRequest (axios 等库使用) - 立即执行确保 axios 加载前生效
@@ -394,6 +402,7 @@
       let responseUrl = "";
 
       xhr.open = function (method, url, async = true, user, password) {
+        requestMethod = method;
         requestUrl = url.toString();
         responseUrl = requestUrl;
         return originalOpen(method, url, async, user, password);
