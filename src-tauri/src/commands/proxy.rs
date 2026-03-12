@@ -13,7 +13,20 @@ pub async fn proxy_fetch(
     cookie_store: State<'_, CookieStore>,
     proxy_config: State<'_, ProxyConfig>,
 ) -> Result<CommandResponse<serde_json::Value>, String> {
+    // 清洗 body：去除 JSON 序列化带来的多余引号
+    let body = body.map(|b| {
+        let trimmed = b.trim();
+        if trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2 {
+            // 去掉外层引号并处理转义字符
+            let inner = &trimmed[1..trimmed.len()-1];
+            inner.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", "\t").replace("\\\"", "\"").replace("\\\\", "\\")
+        } else {
+            b
+        }
+    });
+    
     log::info!("代理请求：{} {}", method, url);
+    log::info!("Headers: {:?}", headers);
 
     let domain = extract_domain(&url);
     let cookies = cookie_store.read().await;
@@ -36,6 +49,8 @@ pub async fn proxy_fetch(
         }
         headers
     });
+
+    log::info!("Body: {:?}", body);
 
     let proxy = proxy_config.read().await;
     if let Some(proxy_settings) = proxy.as_ref() {
@@ -66,36 +81,53 @@ pub async fn proxy_fetch(
         .build()
         .map_err(|e| format!("创建客户端失败：{}", e))?;
 
-    let mut req_builder = match method.as_str() {
-        "GET" => client.get(&url),
-        "POST" => client.post(&url),
-        "PUT" => client.put(&url),
-        "DELETE" => client.delete(&url),
-        "PATCH" => client.patch(&url),
-        "HEAD" => client.head(&url),
-        "OPTIONS" => client.request(reqwest::Method::OPTIONS, &url),
-        _ => client.get(&url),
+    // 处理 method 大小写不敏感
+    let method_upper = method.to_uppercase();
+    
+    // 处理 GET 请求带 body 的情况 - 将 body 转为 query 参数
+    let final_url = if method_upper == "GET" && body.is_some() {
+        let body_str = body.as_ref().unwrap();
+        // 尝试解析 body 为 form 参数并添加到 URL
+        if body_str.starts_with('"') && body_str.ends_with('"') {
+            // 去除外层引号
+            let clean_body = &body_str[1..body_str.len()-1];
+            if url.contains('?') {
+                format!("{}&{}", url, clean_body)
+            } else {
+                format!("{}?{}", url, clean_body)
+            }
+        } else {
+            url.clone()
+        }
+    } else {
+        url.clone()
     };
 
-    // 检查是否有自定义 Referer
-    let has_referer = headers.keys().any(|k| k.to_lowercase() == "referer");
-    
+    let mut req_builder = match method_upper.as_str() {
+        "GET" => client.get(&final_url),
+        "POST" => client.post(&final_url),
+        "PUT" => client.put(&final_url),
+        "DELETE" => client.delete(&final_url),
+        "PATCH" => client.patch(&final_url),
+        "HEAD" => client.head(&final_url),
+        "OPTIONS" => client.request(reqwest::Method::OPTIONS, &final_url),
+        _ => client.get(&final_url),
+    };
+
+    // 添加用户自定义 headers（除了 cookie，cookie 单独处理）
     for (key, value) in headers {
         if key.to_lowercase() != "cookie" {
             req_builder = req_builder.header(&key, value);
         }
     }
-    
-    // 如果没有 Referer，自动添加目标域名（避免防盗链）
-    if !has_referer {
-        let domain = extract_domain(&url);
-        if !domain.is_empty() {
-            req_builder = req_builder.header("Referer", format!("https://{}/", domain));
-        }
-    }
 
-    if let Some(body_str) = body {
-        req_builder = req_builder.body(body_str);
+    log::info!("Request: {:?}", req_builder);
+
+    // GET 请求不发送 body（已经转为 query 参数）
+    if method_upper != "GET" {
+        if let Some(body_str) = body {
+            req_builder = req_builder.body(body_str);
+        }
     }
 
     let response = req_builder
@@ -155,11 +187,12 @@ pub async fn proxy_fetch(
         String::from_utf8_lossy(&decompressed_bytes).to_string()
     };
 
-    // 调试日志：显示返回内容的前 200 个字符
+    // 调试日志：显示返回内容的前 200 个字符（按字符截取，避免切断 UTF-8）
     if response_body.len() < 500 {
         log::info!("代理响应 [{}] body: {}", url, response_body);
     } else {
-        log::info!("代理响应 [{}] body: {}...", url, &response_body[..200]);
+        let truncated: String = response_body.chars().take(200).collect();
+        log::info!("代理响应 [{}] body: {}...", url, truncated);
     }
 
     Ok(CommandResponse::success(serde_json::json!({

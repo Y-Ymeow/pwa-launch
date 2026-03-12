@@ -21,8 +21,9 @@
   const generateId = () =>
     Date.now().toString(36) + Math.random().toString(36).substr(2);
 
-  // 先保存原始 fetch（必须在覆盖之前）
+  // 先保存原始 fetch 和 XHR（必须在覆盖之前）
   const originalFetch = window.fetch.bind(window);
+  const OriginalXHR = window.XMLHttpRequest;
 
   // 创建 Tauri 桥接对象
   const tauriBridge = {
@@ -163,21 +164,33 @@
     // 调用 Rust 后端，由后端根据文件类型决定使用 local server（音视频）还是 static 协议
     async resolve_local_file_url(filePath) {
       // 防护：如果已经是 URL，直接返回
-      if (filePath.startsWith("static://") || 
-          filePath.startsWith("http://static.localhost/") ||
-          filePath.startsWith("http://127.0.0.1:") ||
-          filePath.startsWith("http://localhost:")) {
-        console.log("[PWA Adapt] resolve_local_file_url: already URL, returning as-is:", filePath);
+      if (
+        filePath.startsWith("static://") ||
+        filePath.startsWith("http://static.localhost/") ||
+        filePath.startsWith("http://127.0.0.1:") ||
+        filePath.startsWith("http://localhost:")
+      ) {
+        console.log(
+          "[PWA Adapt] resolve_local_file_url: already URL, returning as-is:",
+          filePath,
+        );
         return filePath;
       }
-      
+
       // 调用 Rust 后端，让后端决定使用 local server 还是 static 协议
-      const result = await this.invoke('resolve_local_file_url', { path: filePath });
+      const result = await this.invoke("resolve_local_file_url", {
+        path: filePath,
+      });
       if (result.success && result.data) {
-        console.log("[PWA Adapt] resolve_local_file_url:", filePath, "->", result.data);
+        console.log(
+          "[PWA Adapt] resolve_local_file_url:",
+          filePath,
+          "->",
+          result.data,
+        );
         return result.data;
       }
-      throw new Error('Failed to resolve file URL');
+      throw new Error("Failed to resolve file URL");
     },
 
     // 选择并读取本地文件，返回 static://localhost URL（推荐）
@@ -279,9 +292,9 @@
           const proxyHeaders = {
             ...(options.headers || {}),
           };
-          if (!proxyHeaders["Referer"] && !proxyHeaders["referer"]) {
-            proxyHeaders["Referer"] = targetUrl.origin + "/";
-          }
+          // if (!proxyHeaders["Referer"] && !proxyHeaders["referer"]) {
+          //   proxyHeaders["Referer"] = targetUrl.origin + "/";
+          // }
 
           const result = await this.invoke("proxy_fetch", {
             url: urlStr,
@@ -363,6 +376,182 @@
     return originalFetch(url, ...rest);
   };
 
+  // 拦截 XMLHttpRequest (axios 等库使用) - 立即执行确保 axios 加载前生效
+  (function setupXHRProxy() {
+    window.XMLHttpRequest = function () {
+      const xhr = new OriginalXHR();
+      const originalOpen = xhr.open.bind(xhr);
+      const originalSend = xhr.send.bind(xhr);
+      const originalSetRequestHeader = xhr.setRequestHeader.bind(xhr);
+      const originalGetResponseHeader = xhr.getResponseHeader.bind(xhr);
+      const originalGetAllResponseHeaders = xhr.getAllResponseHeaders.bind(xhr);
+
+      let requestUrl = "";
+      let requestMethod = "GET";
+      let requestHeaders = {};
+      let requestBody = null;
+      let responseHeaders = {};
+      let responseUrl = "";
+
+      xhr.open = function (method, url, async = true, user, password) {
+        requestUrl = url.toString();
+        responseUrl = requestUrl;
+        return originalOpen(method, url, async, user, password);
+      };
+
+      xhr.setRequestHeader = function (header, value) {
+        requestHeaders[header] = value;
+        return originalSetRequestHeader(header, value);
+      };
+
+      // 覆盖 getResponseHeader 以返回代理的响应头
+      xhr.getResponseHeader = function (header) {
+        if (responseHeaders[header] !== undefined) {
+          return responseHeaders[header];
+        }
+        return originalGetResponseHeader(header);
+      };
+
+      // 覆盖 getAllResponseHeaders 以返回代理的响应头
+      xhr.getAllResponseHeaders = function () {
+        if (Object.keys(responseHeaders).length > 0) {
+          return Object.entries(responseHeaders)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join("\r\n");
+        }
+        return originalGetAllResponseHeaders();
+      };
+
+      xhr.send = async function (body) {
+        requestBody = body;
+
+        // 检测跨域请求
+        try {
+          const urlObj = new URL(requestUrl, window.location.href);
+          if (urlObj.origin !== window.location.origin) {
+            console.log("[PWA Adapt] XHR proxy:", requestUrl);
+
+            // 如果 bridge 未就绪，等待它
+            if (!tauriBridge._ready) {
+              console.log("[PWA Adapt] Waiting for bridge before proxying XHR...");
+              let attempts = 0;
+              while (!tauriBridge._ready && attempts < 50) {
+                await new Promise((resolve) => setTimeout(resolve, 100));
+                attempts++;
+              }
+              if (!tauriBridge._ready) {
+                console.error("[PWA Adapt] Bridge timeout, falling back to native XHR");
+                return originalSend(body);
+              }
+            }
+
+            try {
+              const result = await tauriBridge.invoke("proxy_fetch", {
+                url: requestUrl,
+                method: requestMethod,
+                headers: requestHeaders,
+                body: requestBody,
+              });
+
+              const responseData = result.data || result;
+              
+              // 保存响应头
+              responseHeaders = responseData.headers || {};
+              
+              // 根据 responseType 设置 response
+              let responseValue = responseData.body;
+              const responseType = xhr.responseType || "text";
+              
+              if (responseType === "json") {
+                try {
+                  responseValue = JSON.parse(responseData.body);
+                } catch (e) {
+                  responseValue = responseData.body;
+                }
+              }
+
+              // 模拟 XHR 响应
+              Object.defineProperty(xhr, "status", {
+                value: responseData.status,
+                writable: false,
+              });
+              Object.defineProperty(xhr, "statusText", { 
+                value: responseData.status === 200 ? "OK" : "",
+                writable: false,
+              });
+              Object.defineProperty(xhr, "responseText", {
+                value: responseData.body,
+                writable: false,
+              });
+              Object.defineProperty(xhr, "response", {
+                value: responseValue,
+                writable: false,
+              });
+              Object.defineProperty(xhr, "responseURL", {
+                value: responseUrl,
+                writable: false,
+              });
+              Object.defineProperty(xhr, "readyState", { 
+                value: 4,
+                writable: false,
+              });
+
+              // 触发事件 - 按照 XHR 规范顺序
+              if (xhr.onreadystatechange) {
+                try { xhr.onreadystatechange(); } catch (e) {}
+              }
+              
+              // 触发 load 事件
+              if (xhr.onload) {
+                try { xhr.onload(); } catch (e) {}
+              }
+              
+              // 触发 loadend 事件
+              if (xhr.onloadend) {
+                try { xhr.onloadend(); } catch (e) {}
+              }
+
+              return;
+            } catch (err) {
+              console.error("[PWA Adapt] XHR proxy error:", err);
+              Object.defineProperty(xhr, "status", { 
+                value: 500,
+                writable: false,
+              });
+              Object.defineProperty(xhr, "statusText", { 
+                value: err.message,
+                writable: false,
+              });
+              Object.defineProperty(xhr, "readyState", { 
+                value: 4,
+                writable: false,
+              });
+              
+              if (xhr.onerror) {
+                try { xhr.onerror(err); } catch (e) {}
+              }
+              if (xhr.onloadend) {
+                try { xhr.onloadend(); } catch (e) {}
+              }
+              return;
+            }
+          }
+        } catch (e) {}
+
+        // 非跨域请求走原生 XHR
+        return originalSend(body);
+      };
+
+      return xhr;
+    };
+
+    // 复制静态属性和方法
+    Object.setPrototypeOf(window.XMLHttpRequest, OriginalXHR);
+    window.XMLHttpRequest.prototype = OriginalXHR.prototype;
+
+    console.log("[PWA Adapt] XHR proxy active");
+  })();
+
   // 自动初始化
   tauriBridge.init().then(() => {
     // 触发 ready 事件
@@ -440,62 +629,62 @@
   // 返回的 FileSystemFileHandle 包含真实路径，可通过 adapt.get_file_info 读取内容
   // 注意：强制覆盖原生 API，因为在 iframe/Tauri 环境中原生 API 不可用
   window.showOpenFilePicker = async function (options = {}) {
-      // 等待 bridge 就绪
+    // 等待 bridge 就绪
+    if (!tauriBridge._ready) {
+      console.log("[PWA Adapt] Waiting for bridge to be ready...");
+      let attempts = 0;
+      while (!tauriBridge._ready && attempts < 50) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        attempts++;
+      }
       if (!tauriBridge._ready) {
-        console.log("[PWA Adapt] Waiting for bridge to be ready...");
-        let attempts = 0;
-        while (!tauriBridge._ready && attempts < 50) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          attempts++;
-        }
-        if (!tauriBridge._ready) {
-          throw new DOMException("Tauri bridge not ready", "NotAllowedError");
-        }
+        throw new DOMException("Tauri bridge not ready", "NotAllowedError");
       }
+    }
 
-      // 调用宿主容器的文件选择器，获取 {path, url} 列表
-      const result = await tauriBridge.pick_and_resolve_local_file(options);
+    // 调用宿主容器的文件选择器，获取 {path, url} 列表
+    const result = await tauriBridge.pick_and_resolve_local_file(options);
 
-      if (!result || (Array.isArray(result) && result.length === 0)) {
-        throw new DOMException("No file selected", "AbortError");
-      }
+    if (!result || (Array.isArray(result) && result.length === 0)) {
+      throw new DOMException("No file selected", "AbortError");
+    }
 
-      const itemList = Array.isArray(result) ? result : [result];
+    const itemList = Array.isArray(result) ? result : [result];
 
-      // 创建模拟的 FileSystemFileHandle 对象
-      const handles = itemList.map((item) => {
-        const filePath = item.path;
-        const fileUrl = item.url;
-        
-        // 从路径中提取文件名
-        const fileName = filePath.split(/[\\/]/).pop() || "file";
+    // 创建模拟的 FileSystemFileHandle 对象
+    const handles = itemList.map((item) => {
+      const filePath = item.path;
+      const fileUrl = item.url;
 
-        console.log("[PWA Adapt] Selected file:", filePath, "->", fileUrl);
+      // 从路径中提取文件名
+      const fileName = filePath.split(/[\\/]/).pop() || "file";
 
-        return {
-          kind: "file",
-          name: fileName,
-          _path: filePath,
-          _url: fileUrl,
-          getFile: async () => {
-            const info = await tauriBridge.get_file_info(filePath);
-            if (!info) {
-              throw new Error(`Failed to read file: ${fileName}`);
-            }
-            const file = new File([info.blob], info.name, {
-              type: info.mimeType,
-            });
-            file._path = filePath;
-            return file;
-          },
-          // 返回后端提供的 URL（local server 或 static 协议）
-          getURL: () => fileUrl,
-          getPath: () => filePath,
-        };
-      });
+      console.log("[PWA Adapt] Selected file:", filePath, "->", fileUrl);
 
-      return handles;
-    };
+      return {
+        kind: "file",
+        name: fileName,
+        _path: filePath,
+        _url: fileUrl,
+        getFile: async () => {
+          const info = await tauriBridge.get_file_info(filePath);
+          if (!info) {
+            throw new Error(`Failed to read file: ${fileName}`);
+          }
+          const file = new File([info.blob], info.name, {
+            type: info.mimeType,
+          });
+          file._path = filePath;
+          return file;
+        },
+        // 返回后端提供的 URL（local server 或 static 协议）
+        getURL: () => fileUrl,
+        getPath: () => filePath,
+      };
+    });
+
+    return handles;
+  };
 
   console.log("[PWA Adapt] Bridge created, waiting for parent...");
 })();

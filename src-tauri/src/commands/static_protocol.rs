@@ -131,85 +131,70 @@ pub fn handle_static_request(
     }
 }
 
-/// 处理远程 HTTP 请求代理（同步包装）
+/// 处理远程 HTTP 请求代理（使用同步 ureq）
 fn handle_remote_request(
     url: &str,
     request: &http::Request<Vec<u8>>,
 ) -> http::Response<Vec<u8>> {
     log::info!("[static] 代理远程请求: {}", url);
 
-    // 使用 tokio 运行时执行异步请求
-    let rt = tokio::runtime::Handle::current();
-    rt.block_on(async {
-        // 创建 reqwest 客户端
-        let client = reqwest::Client::new();
-        
-        // 构建请求
-        let mut req_builder = client.get(url);
-        
-        // 添加 Range 头（如果有）
-        if let Some(range) = request.headers().get("Range").and_then(|v| v.to_str().ok()) {
-            req_builder = req_builder.header("Range", range);
-        }
+    // 使用 ureq 发送同步请求
+    let mut req = ureq::get(url);
 
-        // 添加 Referer
-        if let Ok(url_obj) = url.parse::<url::Url>() {
-            let referer = format!("{}://{}/", url_obj.scheme(), url_obj.host_str().unwrap_or(""));
-            req_builder = req_builder.header("Referer", referer);
-        }
+    // 添加 Range 头（如果有）
+    if let Some(range) = request.headers().get("Range").and_then(|v| v.to_str().ok()) {
+        req = req.set("Range", range);
+    }
 
-        // 发送请求
-        match req_builder.send().await {
-            Ok(response) => {
-                let status = response.status().as_u16();
-                log::info!("[static] 远程响应状态: {}", status);
+    // 添加 Referer
+    if let Ok(url_obj) = url.parse::<url::Url>() {
+        let referer = format!("{}://{}/", url_obj.scheme(), url_obj.host_str().unwrap_or(""));
+        req = req.set("Referer", &referer);
+    }
 
-                // 获取响应头
-                let content_type = response.headers()
-                    .get("Content-Type")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("application/octet-stream")
-                    .to_string();
-                
-                let content_range = response.headers()
-                    .get("Content-Range")
-                    .and_then(|v| v.to_str().ok())
-                    .map(|s| s.to_string());
+    match req.call() {
+        Ok(response) => {
+            let status = response.status();
+            log::info!("[static] 远程响应状态: {}", status);
 
-                // 读取响应体
-                let body = match response.bytes().await {
-                    Ok(bytes) => bytes.to_vec(),
-                    Err(e) => {
-                        log::error!("[static] 读取远程响应失败: {}", e);
-                        return Response::builder()
-                            .status(500)
-                            .body(format!("Read remote failed: {}", e).into_bytes())
-                            .unwrap();
-                    }
-                };
+            // 获取响应头
+            let content_type = response
+                .header("Content-Type")
+                .unwrap_or("application/octet-stream")
+                .to_string();
+            let content_range = response.header("Content-Range").map(|s| s.to_string());
 
-                log::info!("[static] 远程响应大小: {} bytes", body.len());
-
-                // 构建响应
-                let mut builder = Response::builder()
-                    .status(status)
-                    .header("Content-Type", content_type)
-                    .header("Accept-Ranges", "bytes")
-                    .header("Access-Control-Allow-Origin", "*");
-
-                if let Some(range) = content_range {
-                    builder = builder.header("Content-Range", range);
-                }
-
-                builder.body(body).unwrap()
+            // 读取响应体
+            let mut body = Vec::new();
+            if let Err(e) = response.into_reader().read_to_end(&mut body) {
+                log::error!("[static] 读取远程响应失败: {}", e);
+                return Response::builder()
+                    .status(500)
+                    .body(format!("Read remote failed: {}", e).into_bytes())
+                    .unwrap();
             }
-            Err(e) => {
-                log::error!("[static] 远程请求失败: {}", e);
-                Response::builder()
-                    .status(502)
-                    .body(format!("Proxy failed: {}", e).into_bytes())
-                    .unwrap()
+
+            log::info!("[static] 远程响应大小: {} bytes", body.len());
+
+            // 构建响应
+            let mut builder = Response::builder()
+                .status(status)
+                .header("Content-Type", content_type)
+                .header("Accept-Ranges", "bytes")
+                .header("Access-Control-Allow-Origin", "*");
+
+            if let Some(range) = content_range {
+                builder = builder.header("Content-Range", range);
             }
+
+            builder.body(body).unwrap()
         }
-    })
+        Err(e) => {
+            log::error!("[static] 远程请求失败: {}", e);
+            Response::builder()
+                .status(502)
+                .body(format!("Proxy failed: {}", e).into_bytes())
+                .unwrap()
+        }
+    }
 }
