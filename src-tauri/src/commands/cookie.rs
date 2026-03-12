@@ -96,16 +96,31 @@ pub async fn set_proxy(
     password: Option<String>,
     proxy_config: State<'_, ProxyConfig>,
 ) -> Result<CommandResponse<bool>, String> {
-    let mut config = proxy_config.write().await;
-    *config = Some(ProxySettings {
+    let proxy_settings = ProxySettings {
         enabled,
-        proxy_type,
-        host,
+        proxy_type: proxy_type.clone(),
+        host: host.clone(),
         port,
-        username,
-        password,
-    });
-    log::info!("设置代理：{:?}", *config);
+        username: username.clone(),
+        password: password.clone(),
+    };
+    
+    // 更新全局配置
+    let mut config = proxy_config.write().await;
+    *config = Some(proxy_settings.clone());
+    drop(config);
+    
+    // 设置环境变量供 static_protocol 使用（同步上下文无法访问 State）
+    if enabled {
+        let proxy_url = proxy_settings.get_proxy_url();
+        std::env::set_var("PWA_PROXY_URL", &proxy_url);
+        log::info!("设置代理环境变量: {}", proxy_url);
+    } else {
+        std::env::remove_var("PWA_PROXY_URL");
+        log::info!("清除代理环境变量");
+    }
+    
+    log::info!("设置代理：{:?}", proxy_settings);
     Ok(CommandResponse::success(true))
 }
 
