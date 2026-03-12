@@ -19,6 +19,11 @@ function DraggableSwitcher({
   setShowSwitcher,
   children,
 }: DraggableSwitcherProps) {
+  // 如果在 iframe 中，不渲染悬浮按钮
+  if (window.parent !== window) {
+    return null;
+  }
+
   const [position, setPosition] = useState<"left" | "right">("right");
   const [isDragging, setIsDragging] = useState(false);
   const [startY, setStartY] = useState(0);
@@ -145,7 +150,7 @@ interface PwaSnapshot {
   timestamp: number;
 }
 
-const MAX_IFRAMES = 4; // 最多4个iframe
+const MAX_IFRAMES = 6; // 最多6个iframe
 
 // 代理设置类型
 interface ProxySettings {
