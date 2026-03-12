@@ -219,7 +219,7 @@ function App() {
     try {
       await invoke("set_proxy", {
         enabled: proxySettings.enabled,
-        proxy_type: proxySettings.proxy_type,
+        proxyType: proxySettings.proxy_type,
         host: proxySettings.host,
         port: proxySettings.port,
         username: proxySettings.username || null,
@@ -238,7 +238,7 @@ function App() {
       // 先临时保存设置
       await invoke("set_proxy", {
         enabled: proxySettings.enabled,
-        proxy_type: proxySettings.proxy_type,
+        proxyType: proxySettings.proxy_type,
         host: proxySettings.host,
         port: proxySettings.port,
         username: proxySettings.username || null,
@@ -799,14 +799,16 @@ function App() {
         </DraggableSwitcher>
       )}
 
-      {/* 代理设置按钮 */}
-      <button
-        className="proxy-settings-btn"
-        onClick={() => setShowProxySettings(true)}
-        title="代理设置"
-      >
-        🔧
-      </button>
+      {/* 代理设置按钮 - 只在主窗口显示，不在 iframe 中显示 */}
+      {window.parent === window && (
+        <button
+          className="proxy-settings-btn"
+          onClick={() => setShowProxySettings(true)}
+          title="代理设置"
+        >
+          🔧
+        </button>
+      )}
 
       {/* 代理设置面板 */}
       {showProxySettings && (
