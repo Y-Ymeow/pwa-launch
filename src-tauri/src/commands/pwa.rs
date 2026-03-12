@@ -1,5 +1,5 @@
 use rusqlite::Connection;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::db::{get_app_data_dir, DbConnection};
 use crate::models::{AppInfo, CommandResponse, InstallRequest};
@@ -141,12 +141,12 @@ pub fn launch_app(
     {
         // 移动端通过插件调用 Android 的 launchPwaAsNewTask 方法
         // 由于不能直接调用插件，这里发送自定义事件给前端，让前端通过插件启动
-        app.emit("launch-pwa-request", serde_json::json!({
+        app.emit::<serde_json::Value>("launch-pwa-request", serde_json::json!({
             "appId": app_id,
             "name": _app_name,
             "url": app_url,
             "displayMode": _display_mode
-        })).map_err(|e| e.to_string())?;
+        })).map_err(|e: tauri::Error| e.to_string())?;
     }
     Ok(CommandResponse::success(app_id))
 }
