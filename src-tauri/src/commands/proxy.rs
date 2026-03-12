@@ -13,6 +13,9 @@ pub async fn proxy_fetch(
     cookie_store: State<'_, CookieStore>,
     proxy_config: State<'_, ProxyConfig>,
 ) -> Result<CommandResponse<serde_json::Value>, String> {
+    use std::time::Instant;
+    let start_time = Instant::now();
+    
     // 清洗 body：去除 JSON 序列化带来的多余引号
     let body = body.map(|b| {
         let trimmed = b.trim();
@@ -71,6 +74,11 @@ pub async fn proxy_fetch(
     });
 
     log::info!("Body: {:?}", body);
+
+    // 添加超时配置
+    client_builder = client_builder
+        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(std::time::Duration::from_secs(10));
 
     let proxy = proxy_config.read().await;
     if let Some(proxy_settings) = proxy.as_ref() {
@@ -159,11 +167,18 @@ pub async fn proxy_fetch(
         .map(|s| s.to_lowercase())
         .unwrap_or_default();
     
-    // 读取响应体为 bytes
+    // 读取响应体为 bytes（带大小限制）
+    log::info!("开始读取响应体...");
     let response_bytes = response
         .bytes()
         .await
         .map_err(|e| format!("读取响应失败：{}", e))?;
+    
+    // 限制最大响应大小 10MB
+    const MAX_SIZE: usize = 10 * 1024 * 1024;
+    if response_bytes.len() > MAX_SIZE {
+        return Err(format!("响应体过大：{} bytes (最大限制 10MB)", response_bytes.len()));
+    }
     
     // 自动解压压缩内容
     let decompressed_bytes = if encoding.contains("gzip") {
@@ -194,12 +209,14 @@ pub async fn proxy_fetch(
         String::from_utf8_lossy(&decompressed_bytes).to_string()
     };
 
+    let elapsed = start_time.elapsed();
+    
     // 调试日志：显示返回内容的前 200 个字符（按字符截取，避免切断 UTF-8）
     if response_body.len() < 500 {
-        log::info!("代理响应 [{}] body: {}", url, response_body);
+        log::info!("代理响应 [{}] body: {} (耗时: {:?})", url, response_body, elapsed);
     } else {
         let truncated: String = response_body.chars().take(200).collect();
-        log::info!("代理响应 [{}] body: {}...", url, truncated);
+        log::info!("代理响应 [{}] body: {}... (耗时: {:?})", url, truncated, elapsed);
     }
 
     Ok(CommandResponse::success(serde_json::json!({
