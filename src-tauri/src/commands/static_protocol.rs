@@ -1,5 +1,7 @@
 use http::Response;
 use std::io::{Read, Seek, SeekFrom};
+use std::sync::mpsc;
+use std::thread;
 use std::time::Duration;
 
 /// 处理 static 协议请求
@@ -132,22 +134,44 @@ pub fn handle_static_request(
     }
 }
 
-/// 处理远程 HTTP 请求代理（使用 reqwest blocking client，支持 SOCKS5）
+/// 处理远程 HTTP 请求代理（在单独线程中执行，避免阻塞主线程）
 fn handle_remote_request(
     url: &str,
     request: &http::Request<Vec<u8>>,
 ) -> http::Response<Vec<u8>> {
     log::info!("[static] 代理远程请求: {}", url);
 
+    // 在线程中执行请求，避免阻塞主线程
+    let (tx, rx) = mpsc::channel();
+    let url = url.to_string();
+    let range_header = request.headers().get("Range").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
+    
+    thread::spawn(move || {
+        let result = fetch_remote(&url, range_header.as_deref());
+        let _ = tx.send(result);
+    });
+
+    // 等待结果，最多 15 秒
+    match rx.recv_timeout(Duration::from_secs(15)) {
+        Ok(response) => response,
+        Err(_) => {
+            log::error!("[static] 请求超时 (>15s)");
+            Response::builder()
+                .status(504)
+                .body("Gateway Timeout (>15s)".as_bytes().to_vec())
+                .unwrap()
+        }
+    }
+}
+
+/// 在线程中执行远程请求
+fn fetch_remote(url: &str, range: Option<&str>) -> http::Response<Vec<u8>> {
     // 创建 reqwest blocking client，支持 SOCKS5
     let mut client_builder = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(30))  // 30 秒超时
-        .connect_timeout(Duration::from_secs(10));  // 10 秒连接超时
+        .timeout(Duration::from_secs(10))  // 10 秒超时
+        .connect_timeout(Duration::from_secs(5));  // 5 秒连接超时
 
     // 检查是否有代理配置
-    // 注意：这里简化处理，实际应该从全局配置读取
-    // 由于 static_protocol 是同步上下文，无法直接访问 State
-    // 这里使用环境变量作为临时方案
     if let Ok(proxy_url) = std::env::var("PWA_PROXY_URL") {
         log::info!("[static] 使用代理: {}", proxy_url);
         if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
@@ -170,7 +194,7 @@ fn handle_remote_request(
     let mut req_builder = client.get(url);
 
     // 添加 Range 头（如果有）
-    if let Some(range) = request.headers().get("Range").and_then(|v| v.to_str().ok()) {
+    if let Some(range) = range {
         req_builder = req_builder.header("Range", range);
     }
 
@@ -198,15 +222,15 @@ fn handle_remote_request(
                 .and_then(|v| v.to_str().ok())
                 .map(|s| s.to_string());
 
-            // 读取响应体（带大小限制，避免内存溢出）
+            // 读取响应体（带大小限制）
             let body = match response.bytes() {
                 Ok(bytes) => {
-                    // 限制最大 50MB
-                    if bytes.len() > 50 * 1024 * 1024 {
+                    // 限制最大 20MB
+                    if bytes.len() > 20 * 1024 * 1024 {
                         log::error!("[static] 响应体过大: {} bytes", bytes.len());
                         return Response::builder()
                             .status(413)
-                            .body("Payload Too Large (max 50MB)".as_bytes().to_vec())
+                            .body("Payload Too Large (max 20MB)".as_bytes().to_vec())
                             .unwrap();
                     }
                     bytes.to_vec()
