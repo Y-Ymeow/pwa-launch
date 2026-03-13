@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-get-webview-info"
+description = "Allows getting webview information"
+commands.allow = ["get_webview_info"]

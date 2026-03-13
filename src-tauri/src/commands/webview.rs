@@ -14,7 +14,7 @@ pub async fn navigate_to_url(
         url.replace("\"", "\\\"")
     );
     
-    window.eval(&script)
+    window.eval(script)
         .map_err(|e| format!("导航失败: {:?}", e))?;
     
     log::info!("[WebView] Navigate to: {}", url);
@@ -26,9 +26,9 @@ pub async fn navigate_to_url(
 pub async fn navigate_back(
     window: WebviewWindow,
 ) -> Result<CommandResponse<bool>, String> {
-    let script = r#"window.__TAURI_GO_BACK__ && window.__TAURI_GO_BACK__();"#;
+    let script = r#"window.__TAURI_GO_BACK__ && window.__TAURI_GO_BACK__();"#.to_string();
     
-    window.eval(&script)
+    window.eval(script)
         .map_err(|e| format!("返回失败: {:?}", e))?;
     
     log::info!("[WebView] Navigate back");

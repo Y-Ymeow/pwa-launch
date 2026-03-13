@@ -69,8 +69,9 @@
     "allow-check-storage-permission",
     "allow-request-storage-permission",
     "allow-sync-webview-cookies",
-    "allow-open-webview",
-    "allow-close-current-webview",
+    "allow-navigate-to-url",
+    "allow-navigate-back",
+    "allow-get-webview-info",
     "os:default",
     "log:default",
     "dialog:default"

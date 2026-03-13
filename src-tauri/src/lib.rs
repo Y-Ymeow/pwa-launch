@@ -142,8 +142,9 @@ pub fn run() {
             commands::kv_get_all,
             commands::kv_remove,
             commands::kv_clear,
-            commands::open_webview,
-            commands::close_current_webview,
+            commands::navigate_to_url,
+            commands::navigate_back,
+            commands::get_webview_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
