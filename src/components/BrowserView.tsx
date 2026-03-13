@@ -107,12 +107,14 @@ export function BrowserView({
   showMessage,
 }: BrowserViewProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const [inputUrl, setInputUrl] = useState(browserUrl || 'https://www.google.com');
 
   const navigateToUrl = useCallback(async (url: string) => {
     let finalUrl = url;
     if (!url.startsWith('http')) finalUrl = 'https://' + url;
     
     setBrowserUrl(finalUrl);
+    setInputUrl(finalUrl);
     setIsLoading(true);
     
     try {
@@ -128,6 +130,11 @@ export function BrowserView({
       setIsLoading(false);
     }
   }, [setBrowserUrl, setBrowserHistory, showMessage]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    navigateToUrl(inputUrl);
+  };
 
   useEffect(() => {
     const handleMessage = async (e: MessageEvent) => {
@@ -166,27 +173,54 @@ export function BrowserView({
 
   return (
     <div className="browser-view">
+      {/* 本地地址栏 */}
+      <div className="browser-local-bar">
+        <button onClick={onClose} className="browser-btn" title="返回应用列表">←</button>
+        <form onSubmit={handleSubmit} className="browser-address-form">
+          <input
+            type="text"
+            value={inputUrl}
+            onChange={(e) => setInputUrl(e.target.value)}
+            placeholder="输入网址..."
+            className="browser-address-input"
+          />
+          <button type="submit" className="browser-go-btn">→</button>
+        </form>
+      </div>
+
       {isLoading && (
         <div className="browser-loading">
           <div className="spinner"></div>
-          <span>正在加载...</span>
+          <span>正在导航...</span>
         </div>
       )}
-      
+
+      {/* 快速访问 */}
+      <div className="browser-quick-access">
+        <h4>快速访问</h4>
+        <div className="quick-links">
+          <button onClick={() => navigateToUrl('https://www.google.com')}>Google</button>
+          <button onClick={() => navigateToUrl('https://github.com')}>GitHub</button>
+          <button onClick={() => navigateToUrl('https://www.bing.com')}>Bing</button>
+        </div>
+      </div>
+
+      {/* 历史记录 */}
       {browserHistory.length > 0 && (
         <div className="browser-history-panel">
           <h4>最近访问</h4>
           {browserHistory.slice(0, 10).map((item, idx) => (
             <div key={idx} className="history-item" onClick={() => navigateToUrl(item.url)}>
               <span className="history-title">{item.title || item.url}</span>
+              <span className="history-url">{item.url}</span>
             </div>
           ))}
         </div>
       )}
-      
+
       <div className="browser-hint">
-        <p>✓ 浏览器 UI 已注入当前页面</p>
-        <p>页面顶部显示地址栏和返回按钮</p>
+        <p>💡 提示：输入网址后，页面将在当前 WebView 中打开</p>
+        <p>页面加载后会自动注入浏览器工具栏（地址栏、返回按钮等）</p>
       </div>
     </div>
   );
