@@ -159,7 +159,7 @@ fn open_storage_settings_jni() -> Result<(), String> {
     let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
     
     let ctx = ndk_context::android_context().context();
-    let ctx_ref = unsafe { jni::objects::JObject::from_raw(ctx as *mut jni::sys::jobject) };
+    let ctx_ref = unsafe { jni::objects::JObject::from_raw(ctx as jni::sys::jobject) };
     
     // 创建 Intent
     let intent_cls = env.find_class("android/content/Intent").map_err(|e| e.to_string())?;
