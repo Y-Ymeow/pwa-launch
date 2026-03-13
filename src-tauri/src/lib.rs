@@ -37,11 +37,9 @@ pub fn run() {
     {
         builder = builder.plugin(
             tauri_plugin_log::Builder::new()
+                .clear_targets()
                 .level(log::LevelFilter::Info)
                 .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout))
-                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
-                    file_name: Some("pwa_container".to_string()),
-                }))
                 .build(),
         );
     }
@@ -55,20 +53,19 @@ pub fn run() {
         .register_uri_scheme_protocol("static", |_app, request| {
             commands::static_protocol::handle_static_request(request)
         })
-        .register_asynchronous_uri_scheme_protocol("stream", move |_app, request, responder| {
-            match commands::stream_file_protocol::handle_stream_request(request) {
-                Ok(http_response) => responder.respond(http_response),
-                Err(e) => responder.respond(
-                    http::Response::builder()
-                        .status(http::StatusCode::INTERNAL_SERVER_ERROR)
-                        .header("Content-Type", "text/plain")
-                        .body(e.to_string().into_bytes())
-                        .unwrap(),
-                ),
-            }
-        })
-        .register_uri_scheme_protocol("adapt", |_app, _request| {
-            // 编译时嵌入 adapt.js 内容，避免运行时文件路径问题（Android 无法访问文件）
+        .register_uri_scheme_protocol("pwa-resource", |ctx, request| {
+                match commands::pwa_resource_protocol::handle_resource_request(ctx.app_handle(), request) {
+                    Ok(res) => res,
+                    Err(e) => {
+                        log::error!("[PWAResource] Error: {}", e);
+                        http::Response::builder()
+                            .status(500)
+                            .body(e.to_string().into_bytes())
+                            .unwrap()
+                    }
+                }
+                })
+                .register_uri_scheme_protocol("adapt", |_app, _request| {            // 编译时嵌入 adapt.js 内容，避免运行时文件路径问题（Android 无法访问文件）
             const ADAPT_JS: &str = include_str!("../../adapt.js");
             
             log::info!("[adapt] Serving adapt.js, size: {} bytes", ADAPT_JS.len());
@@ -129,8 +126,23 @@ pub fn run() {
             commands::opfs_list_dir,
             commands::open_file_dialog,
             commands::read_file_content,
+            commands::read_file_range,
             commands::resolve_local_file_url,
             commands::sync_webview_cookies,
+            commands::fs_read_dir,
+            commands::fs_write_file,
+            commands::fs_create_dir,
+            commands::fs_remove,
+            commands::fs_exists,
+            commands::check_storage_permission,
+            commands::request_storage_permission,
+            commands::kv_set,
+            commands::kv_get,
+            commands::kv_get_all,
+            commands::kv_remove,
+            commands::kv_clear,
+            commands::open_webview,
+            commands::close_current_webview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

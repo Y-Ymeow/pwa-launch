@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-fs-exists"
+description = "Allows checking if a file or directory exists"
+commands.allow = ["fs_exists"]

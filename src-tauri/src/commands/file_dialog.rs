@@ -220,21 +220,23 @@ pub async fn resolve_local_file_url(path: String) -> Result<CommandResponse<Stri
         .unwrap_or("")
         .to_lowercase();
     
-    // 音视频文件使用 local server（支持 Range 请求，适合流媒体）
+    // 音视频文件使用 local server (无状态代理方案，最兼容 WebKit 媒体引擎)
     let is_media = matches!(ext.as_str(), "mp3" | "flac" | "wav" | "ogg" | "m4a" | "aac" | "wma" | "mp4" | "webm" | "mkv" | "mov" | "avi");
     
     if is_media {
-        // 音视频：使用本地 HTTP 服务器
-        let path_clone = path.clone();
-        log::info!("Local server URL for media: {}", path_clone);
-        if let Some(url) = crate::local_server::get_file_url(path_clone) {
-            log::info!("Local server URL for media: {}", url);
+        // 音视频：优先使用本地 HTTP 代理服务器 (最兼容)
+        if let Some(url) = crate::local_server::get_file_url(path.clone()) {
+            log::info!("Local Server Proxy URL for media: {}", url);
             Ok(CommandResponse::success(url))
         } else {
-            // 服务器未启动，回退到 static 协议
-            log::warn!("Local server not available, falling back to static:// for media");
+            // 回退到 static 协议
             let encoded_path = urlencoding::encode(&path);
-            let url = format!("static://localhost/{}", encoded_path);
+            let url = if cfg!(target_os = "android") {
+                format!("http://static.localhost/{}", encoded_path)
+            } else {
+                format!("static://localhost/{}", encoded_path)
+            };
+            log::info!("Fallback to Static URL for media: {}", url);
             Ok(CommandResponse::success(url))
         }
     } else {
@@ -249,4 +251,61 @@ pub async fn resolve_local_file_url(path: String) -> Result<CommandResponse<Stri
         };
         Ok(CommandResponse::success(url))
     }
+}
+
+/// 读取文件指定范围的内容（用于获取元数据）
+#[tauri::command]
+pub async fn read_file_range(
+    path: String,
+    offset: u64,
+    length: u64,
+) -> Result<CommandResponse<serde_json::Value>, String> {
+    use std::fs::File;
+    use std::io::{Read, Seek, SeekFrom};
+
+    let path_buf = PathBuf::from(&path);
+
+    log::info!("read_file_range: {} offset={} length={}", path, offset, length);
+
+    if !path_buf.exists() {
+        return Err("文件不存在".to_string());
+    }
+
+    let mut file = File::open(&path_buf).map_err(|e| format!("打开文件失败：{}", e))?;
+    
+    // 获取文件大小
+    let file_size = file.metadata().map_err(|e| format!("获取文件信息失败：{}", e))?.len();
+    
+    // 限制读取范围
+    let actual_offset = offset.min(file_size);
+    let max_length = file_size - actual_offset;
+    let actual_length = length.min(max_length).min(10 * 1024 * 1024); // 最大 10MB
+
+    // 定位并读取
+    file.seek(SeekFrom::Start(actual_offset))
+        .map_err(|e| format!("定位文件失败：{}", e))?;
+
+    let mut buffer = vec![0u8; actual_length as usize];
+    let bytes_read = file.read(&mut buffer).map_err(|e| format!("读取文件失败：{}", e))?;
+    buffer.truncate(bytes_read);
+
+    use base64::Engine;
+    let base64_content = base64::engine::general_purpose::STANDARD.encode(&buffer);
+
+    let name = path_buf
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    log::info!("read_file_range: {} read {} bytes", name, bytes_read);
+
+    Ok(CommandResponse::success(serde_json::json!({
+        "name": name,
+        "path": path,
+        "size": file_size,
+        "offset": actual_offset,
+        "length": bytes_read,
+        "content": base64_content,
+    })))
 }

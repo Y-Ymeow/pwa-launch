@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-fs-read-dir"
+description = "Allows reading directory contents"
+commands.allow = ["fs_read_dir"]

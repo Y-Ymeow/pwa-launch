@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-fs-write-file"
+description = "Allows writing to a file"
+commands.allow = ["fs_write_file"]

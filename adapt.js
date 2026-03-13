@@ -66,20 +66,36 @@
 
         // 超时
         setTimeout(() => {
-          window.removeEventListener("message", handler);
-          console.log("[PWA Adapt] Timeout, assuming ready");
-          this._ready = true;
-          resolve(false);
-        }, 1000);
+          if (!this._ready) {
+            window.removeEventListener("message", handler);
+            console.log("[PWA Adapt] Timeout, forcing ready status");
+            this._ready = true;
+            resolve(false);
+          }
+        }, 3000); // 增加到 3 秒
       });
+    },
+
+    // 禁用 Service Worker (自定义协议不支持)
+    _shimServiceWorker() {
+      if ("serviceWorker" in navigator) {
+        console.log(
+          "[PWA Adapt] Shimming ServiceWorker to prevent protocol errors",
+        );
+        navigator.serviceWorker.register = function () {
+          console.warn(
+            "[PWA Adapt] ServiceWorker registration blocked (unsupported on custom protocol)",
+          );
+          return new Promise(() => {}); // 返回一个永远 pending 的 promise
+        };
+      }
     },
 
     // 调用 Tauri 命令
     async invoke(cmd, payload = {}) {
-      if (!this._ready) {
-        throw new Error(
-          "Tauri Adapt not ready. Call init() first or wait for tauri-ready event.",
-        );
+
+      if (window.__TAURI_INTERNALS__) {
+        return window.__TAURI_INTERNALS__.invoke(cmd, payload);
       }
 
       return new Promise((resolve, reject) => {
@@ -125,10 +141,10 @@
     // 文件对话框支持
     async openFileDialog(options = {}) {
       const result = await this.invoke("open_file_dialog", {
-        title: options.title || "Select File",
-        multiple: options.multiple || false,
-        filters: options.filters || [],
-        directory: options.directory || false,
+        title: options.title,
+        multiple: options.multiple,
+        filters: options.filters,
+        directory: options.directory,
       });
 
       if (result.success && result.data && result.data.paths) {
@@ -155,6 +171,35 @@
           size: result.data.size,
           mimeType: result.data.mimeType,
           blob: blob,
+        };
+      }
+      return null;
+    },
+
+    // 读取文件指定范围（用于获取元数据，避免读取整个大文件）
+    async readFileRange(path, offset = 0, length = 262144) {
+      // 默认读取 256KB（足够大部分 MP3/FLAC 的元数据）
+      const result = await this.invoke("read_file_range", {
+        path,
+        offset,
+        length,
+      });
+
+      if (result.success && result.data) {
+        // 解码 base64
+        const byteCharacters = atob(result.data.content);
+        const bytes = new Uint8Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          bytes[i] = byteCharacters.charCodeAt(i);
+        }
+        return {
+          name: result.data.name,
+          path: result.data.path,
+          size: result.data.size,
+          offset: result.data.offset,
+          length: result.data.length,
+          bytes: bytes,
+          arrayBuffer: bytes.buffer,
         };
       }
       return null;
@@ -197,18 +242,15 @@
     // 通过宿主容器的 dialog 获取真实路径，然后转换为 static:// URL
     async pick_and_resolve_local_file(options = {}) {
       // 1. 调用宿主容器的 open_file_dialog 获取真实路径
-      // 参数需要包装在 options 键下
       const result = await this.invoke("open_file_dialog", {
-        options: {
-          title: options.title || "Select File",
-          multiple: options.multiple || false,
-          filters:
-            options.types?.map((t) => ({
-              name: t.description || "Files",
-              extensions: Object.values(t.accept || {}).flat(),
-            })) || [],
-          directory: false,
-        },
+        title: options.title || "Select File",
+        multiple: options.multiple || false,
+        filters:
+          options.types?.map((t) => ({
+            name: t.description || "Files",
+            extensions: Object.values(t.accept || {}).flat(),
+          })) || [],
+        directory: false,
       });
 
       if (!result.success || !result.data || result.data.paths.length === 0) {
@@ -256,6 +298,198 @@
       return null;
     },
 
+    // 完整的文件系统 API
+    fs: {
+      async readDir(path) {
+        const res = await tauriBridge.invoke("fs_read_dir", { path });
+        return res.success ? res.data : [];
+      },
+      async readFile(path, options = {}) {
+        const res = await tauriBridge.invoke("read_file_content", { path });
+        if (!res.success || !res.data)
+          throw new Error(res.error || "Read failed");
+
+        if (options.encoding === "utf8") {
+          return atob(res.data.content);
+        }
+        // 返回 Uint8Array
+        const binary = atob(res.data.content);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return bytes;
+      },
+      async writeFile(path, content, options = {}) {
+        let payload = content;
+        let isBinary = true;
+
+        if (typeof content === "string") {
+          if (options.encoding === "utf8") {
+            isBinary = false;
+          } else {
+            // 如果是字符串但未指定 utf8，视为 base64
+            payload = content;
+          }
+        } else if (
+          content instanceof Uint8Array ||
+          content instanceof ArrayBuffer
+        ) {
+          // 转为 base64 发送
+          const bytes =
+            content instanceof ArrayBuffer ? new Uint8Array(content) : content;
+          let binary = "";
+          for (let i = 0; i < bytes.byteLength; i++)
+            binary += String.fromCharCode(bytes[i]);
+          payload = btoa(binary);
+        }
+
+        const res = await tauriBridge.invoke("fs_write_file", {
+          path,
+          content: payload,
+          isBinary,
+        });
+        if (!res.success) throw new Error(res.error || "Write failed");
+        return true;
+      },
+      async createDir(path, options = {}) {
+        const res = await tauriBridge.invoke("fs_create_dir", {
+          path,
+          recursive: options.recursive || false,
+        });
+        if (!res.success) throw new Error(res.error || "Create dir failed");
+        return true;
+      },
+      async removeFile(path) {
+        const res = await tauriBridge.invoke("fs_remove", {
+          path,
+          recursive: false,
+        });
+        if (!res.success) throw new Error(res.error || "Remove failed");
+        return true;
+      },
+      async removeDir(path, options = {}) {
+        const res = await tauriBridge.invoke("fs_remove", {
+          path,
+          recursive: options.recursive || false,
+        });
+        if (!res.success) throw new Error(res.error || "Remove failed");
+        return true;
+      },
+      async exists(path) {
+        const res = await tauriBridge.invoke("fs_exists", { path });
+        return res.success ? res.data : false;
+      },
+    },
+
+    // 持久化 KV 存储 (替代不可靠的 localStorage)
+    storage: {
+      // 获取当前 PWA 的 ID (从 URL 或 Cookie 中提取)
+      get _appId() {
+        // 1. 优先从 cookie 获取 (后端设置的，最稳定)
+        try {
+          const contextCookie = document.cookie
+            .split(";")
+            .find((c) => c.trim().startsWith("pwa_context="));
+          if (contextCookie) {
+            const ctx = contextCookie.trim().substring("pwa_context=".length);
+            // ctx 格式为 "https/domain.com"，取域名部分作为 ID
+            return ctx.split("/")[1] || ctx;
+          }
+        } catch (e) {}
+
+        // 2. 尝试从 URL 提取
+        const url = window.location.href;
+        // 支持多种格式: pwa-resource://localhost/https/domain.com/ 或 http://pwa-resource.localhost/https/domain.com/
+        const match = url.match(/\/(https|http)\/([^/]+)/);
+        if (match) return match[2];
+
+        // 3. 兜底
+        return window.location.hostname || "default";
+      },
+      async getItem(key) {
+        const res = await tauriBridge.invoke("kv_get", {
+          appId: this._appId,
+          key,
+        });
+        return res.success ? res.data : null;
+      },
+      async setItem(key, value) {
+        const res = await tauriBridge.invoke("kv_set", {
+          appId: this._appId,
+          key,
+          value: String(value),
+        });
+        return res.success;
+      },
+      async removeItem(key) {
+        const res = await tauriBridge.invoke("kv_remove", {
+          appId: this._appId,
+          key,
+        });
+        return res.success;
+      },
+      async clear() {
+        const res = await tauriBridge.invoke("kv_clear", {
+          appId: this._appId,
+        });
+        return res.success;
+      },
+    },
+
+    // Cookie 管理 API
+    cookie: {
+      async get(url) {
+        const res = await tauriBridge.invoke("get_cookies", { url });
+        return res.success ? res.data : {};
+      },
+      async set(url, cookies) {
+        // cookies 可以是 "key=value" 字符串或对象
+        const res = await tauriBridge.invoke("set_cookies", { url, cookies });
+        return res.success;
+      },
+    },
+
+    // WebView 控制 API
+    webview: {
+      async open(options) {
+        return await tauriBridge.invoke("open_webview", {
+          url: options.url,
+          title: options.title || "New Window",
+          width: options.width || 1000,
+          height: options.height || 800,
+          injectAdapt: options.injectAdapt !== false,
+        });
+      },
+      async close() {
+        return await tauriBridge.invoke("close_current_webview");
+      },
+    },
+
+    // 存储权限检查 API (Android)
+    permission: {
+      async checkStorage() {
+        const res = await tauriBridge.invoke("check_storage_permission");
+        return res.success ? res.data : { granted: false, can_request: false };
+      },
+      async requestStorage() {
+        const res = await tauriBridge.invoke("request_storage_permission");
+        return res.success;
+      },
+      // 检查并引导用户授权（带弹窗提示）
+      async checkAndRequestStorage(message) {
+        const status = await this.checkStorage();
+        if (status.granted) {
+          return true;
+        }
+        
+        // 显示引导弹窗
+        const msg = message || "需要授予所有文件访问权限才能使用此功能。请在设置中开启权限。";
+        if (confirm(msg)) {
+          await this.requestStorage();
+        }
+        return false;
+      },
+    },
+
     // 拦截 fetch - 支持 tauri:// 协议和跨域代理
     async fetch(url, options = {}) {
       const urlStr = url.toString();
@@ -283,52 +517,55 @@
         }
       }
 
-      // 检测跨域请求，走 Tauri 代理
       try {
-        const urlObj = new URL(urlStr, window.location.href);
-        if (urlObj.origin !== window.location.origin) {
-          // 如果没有 Referer，自动添加
-          const targetUrl = new URL(urlStr);
-          const proxyHeaders = {
-            ...(options.headers || {}),
-          };
-          // if (!proxyHeaders["Referer"] && !proxyHeaders["referer"]) {
-          //   proxyHeaders["Referer"] = targetUrl.origin + "/";
-          // }
+        const result = await this.invoke("proxy_fetch", {
+          url: urlStr,
+          method: options.method || "GET",
+          headers: options.headers || {},
+          body: options.body || null,
+          responseType: options.responseType || "text",
+        });
 
-          const result = await this.invoke("proxy_fetch", {
-            url: urlStr,
-            method: options.method || "GET",
-            headers: proxyHeaders,
-            body: options.body || null,
-          });
+        const responseData = result.data || result;
+        console.log(result)
 
-          // 注意：result 包含 {success, data}，实际数据在 result.data 中
-          const responseData = result.data || result;
+        // 根据 responseType 处理响应体
+        let body = responseData.body;
+        const respType = options.responseType || "text";
 
-          // 如果是 base64 图片，转为 blob
-          let body = responseData.body;
-          if (responseData.is_base64 && responseData.headers["content-type"]) {
-            const byteCharacters = atob(body);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            body = new Blob([byteArray], {
-              type: responseData.headers["content-type"],
-            });
+        if (responseData.is_base64 || respType === "arraybuffer" || respType === "blob") {
+          // base64 解码为 Uint8Array
+          const byteCharacters = atob(body);
+          const byteArray = new Uint8Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteArray[i] = byteCharacters.charCodeAt(i);
           }
 
-          return new Response(body, {
-            status: responseData.status,
-            headers: responseData.headers,
-          });
+          if (respType === "arraybuffer") {
+            body = byteArray.buffer;
+          } else {
+            // blob 或默认二进制
+            body = new Blob([byteArray], {
+              type: responseData.headers["content-type"] || "application/octet-stream",
+            });
+          }
         }
-      } catch (e) {}
 
-      // 同域请求走原生 fetch（使用保存的 originalFetch）
-      return originalFetch(url, options);
+        return new Response(body, {
+          status: responseData.status,
+          headers: responseData.headers,
+          type: responseData.response_type
+        });
+      } catch (invokeError) {
+        console.error("[PWA Adapt] Proxy fetch command failed:", invokeError);
+        // 返回一个合成的错误响应，防止前端无限重试
+        return new Response(JSON.stringify({ error: invokeError.message }), {
+          data: null,
+          status: 500,
+          statusText: "Bad Gateway (Tauri Proxy Error)",
+          headers: { "Content-Type": "application/json" },
+        });
+      }
     },
   };
 
@@ -366,19 +603,19 @@
       return originalFetch(url, ...rest);
     }
 
-    // 如果 tauri 未就绪，等待它
-    if (!tauriBridge._ready) {
-      console.log("[PWA Adapt] Waiting for bridge before fetch...");
-      let attempts = 0;
-      while (!tauriBridge._ready && attempts < 50) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        attempts++;
-      }
-      if (!tauriBridge._ready) {
-        console.error("[PWA Adapt] Bridge timeout, using native fetch");
-        return originalFetch(url, ...rest);
-      }
-    }
+    // // 如果 tauri 未就绪，等待它
+    // if (!tauriBridge._ready) {
+    //   console.log("[PWA Adapt] Waiting for bridge before fetch...");
+    //   let attempts = 0;
+    //   while (!tauriBridge._ready && attempts < 50) {
+    //     await new Promise((resolve) => setTimeout(resolve, 100));
+    //     attempts++;
+    //   }
+    //   if (!tauriBridge._ready) {
+    //     console.error("[PWA Adapt] Bridge timeout, using native fetch");
+    //     return originalFetch(url, ...rest);
+    //   }
+    // }
 
     // tauriBridge.fetch 内部使用的是 originalFetch，不会递归
     return tauriBridge.fetch(url, ...rest);
@@ -442,14 +679,18 @@
 
             // 如果 bridge 未就绪，等待它
             if (!tauriBridge._ready) {
-              console.log("[PWA Adapt] Waiting for bridge before proxying XHR...");
+              console.log(
+                "[PWA Adapt] Waiting for bridge before proxying XHR...",
+              );
               let attempts = 0;
               while (!tauriBridge._ready && attempts < 50) {
                 await new Promise((resolve) => setTimeout(resolve, 100));
                 attempts++;
               }
               if (!tauriBridge._ready) {
-                console.error("[PWA Adapt] Bridge timeout, falling back to native XHR");
+                console.error(
+                  "[PWA Adapt] Bridge timeout, falling back to native XHR",
+                );
                 return originalSend(body);
               }
             }
@@ -463,14 +704,14 @@
               });
 
               const responseData = result.data || result;
-              
+
               // 保存响应头
               responseHeaders = responseData.headers || {};
-              
+
               // 根据 responseType 设置 response
               let responseValue = responseData.body;
               const responseType = xhr.responseType || "text";
-              
+
               if (responseType === "json") {
                 try {
                   responseValue = JSON.parse(responseData.body);
@@ -484,7 +725,7 @@
                 value: responseData.status,
                 writable: false,
               });
-              Object.defineProperty(xhr, "statusText", { 
+              Object.defineProperty(xhr, "statusText", {
                 value: responseData.status === 200 ? "OK" : "",
                 writable: false,
               });
@@ -500,47 +741,57 @@
                 value: responseUrl,
                 writable: false,
               });
-              Object.defineProperty(xhr, "readyState", { 
+              Object.defineProperty(xhr, "readyState", {
                 value: 4,
                 writable: false,
               });
 
               // 触发事件 - 按照 XHR 规范顺序
               if (xhr.onreadystatechange) {
-                try { xhr.onreadystatechange(); } catch (e) {}
+                try {
+                  xhr.onreadystatechange();
+                } catch (e) {}
               }
-              
+
               // 触发 load 事件
               if (xhr.onload) {
-                try { xhr.onload(); } catch (e) {}
+                try {
+                  xhr.onload();
+                } catch (e) {}
               }
-              
+
               // 触发 loadend 事件
               if (xhr.onloadend) {
-                try { xhr.onloadend(); } catch (e) {}
+                try {
+                  xhr.onloadend();
+                } catch (e) {}
               }
 
               return;
             } catch (err) {
               console.error("[PWA Adapt] XHR proxy error:", err);
-              Object.defineProperty(xhr, "status", { 
+              Object.defineProperty(xhr, "status", {
                 value: 500,
                 writable: false,
               });
-              Object.defineProperty(xhr, "statusText", { 
+              Object.defineProperty(xhr, "statusText", {
                 value: err.message,
                 writable: false,
               });
-              Object.defineProperty(xhr, "readyState", { 
+              Object.defineProperty(xhr, "readyState", {
                 value: 4,
                 writable: false,
               });
-              
+
               if (xhr.onerror) {
-                try { xhr.onerror(err); } catch (e) {}
+                try {
+                  xhr.onerror(err);
+                } catch (e) {}
               }
               if (xhr.onloadend) {
-                try { xhr.onloadend(); } catch (e) {}
+                try {
+                  xhr.onloadend();
+                } catch (e) {}
               }
               return;
             }
@@ -561,8 +812,95 @@
     console.log("[PWA Adapt] XHR proxy active");
   })();
 
+  // 持久化 KV 存储 (替代不可靠的 localStorage)
+  const storageManager = {
+    // 获取当前 PWA 的唯一标识
+    get appId() {
+      try {
+        const contextCookie = document.cookie
+          .split(";")
+          .find((c) => c.trim().startsWith("pwa_context="));
+        if (contextCookie) {
+          const ctx = contextCookie.trim().substring("pwa_context=".length);
+          return ctx.replace(/\//g, "-").replace(/\./g, "_");
+        }
+      } catch (e) {}
+      const match = window.location.href.match(/\/(https|http)\/([^/]+)/);
+      return match ? `${match[1]}-${match[2].replace(/\./g, "_")}` : "default";
+    },
+
+    // 劫持 IndexedDB：给数据库名加前缀，实现域隔离
+    hackIndexedDB() {
+      const originalOpen = IDBFactory.prototype.open;
+      const self = this;
+      IDBFactory.prototype.open = function (name, version) {
+        const prefixedName = `${self.appId}_${name}`;
+        console.log(
+          `[PWA Hack] IndexedDB isolation: ${name} -> ${prefixedName}`,
+        );
+        return originalOpen.call(this, prefixedName, version);
+      };
+
+      // 同时也劫持 deleteDatabase
+      const originalDelete = IDBFactory.prototype.deleteDatabase;
+      IDBFactory.prototype.deleteDatabase = function (name) {
+        return originalDelete.call(this, `${self.appId}_${name}`);
+      };
+    },
+
+    // 劫持 LocalStorage：自动同步到 SQLite
+    async hackLocalStorage() {
+      const appId = this.appId;
+      console.log(`[PWA Hack] LocalStorage persistence active for: ${appId}`);
+
+      // 1. 从 Rust 恢复所有数据
+      try {
+        const res = await tauriBridge.invoke("kv_get_all", { appId });
+        if (res.success && res.data) {
+          Object.entries(res.data).forEach(([key, value]) => {
+            // 只有当本地没有或较旧时才覆盖（简单策略）
+            if (!localStorage.getItem(key)) {
+              localStorage.setItem(key, value);
+            }
+          });
+          console.log(
+            `[PWA Hack] Restored ${Object.keys(res.data).length} items from SQLite`,
+          );
+        }
+      } catch (e) {
+        console.error("[PWA Hack] Failed to restore storage:", e);
+      }
+
+      // 2. 劫持原生方法
+      const originalSetItem = Storage.prototype.setItem;
+      const originalRemoveItem = Storage.prototype.removeItem;
+      const originalClear = Storage.prototype.clear;
+
+      Storage.prototype.setItem = function (key, value) {
+        originalSetItem.call(this, key, value);
+        // 异步备份到 Rust
+        tauriBridge
+          .invoke("kv_set", { appId, key, value: String(value) })
+          .catch(() => {});
+      };
+
+      Storage.prototype.removeItem = function (key) {
+        originalRemoveItem.call(this, key);
+        tauriBridge.invoke("kv_remove", { appId, key }).catch(() => {});
+      };
+
+      Storage.prototype.clear = function () {
+        originalClear.call(this);
+        tauriBridge.invoke("kv_clear", { appId }).catch(() => {});
+      };
+    },
+  };
+
   // 自动初始化
+  storageManager.hackIndexedDB();
+  tauriBridge._shimServiceWorker();
   tauriBridge.init().then(() => {
+    storageManager.hackLocalStorage();
     // 触发 ready 事件
     window.dispatchEvent(new CustomEvent("tauri-ready"));
 
@@ -573,6 +911,14 @@
   // 图片代理：拦截所有 <img> 标签
   function setupImageProxy() {
     if (!tauriBridge._ready) return;
+
+    if (!document.body) {
+      console.warn(
+        "[PWA Adapt] document.body not available, delaying image proxy...",
+      );
+      setTimeout(setupImageProxy, 100);
+      return;
+    }
 
     console.log("[PWA Adapt] Setting up image proxy...");
 
@@ -700,11 +1046,11 @@
   // ===== 验证助手：悬浮按钮 + Cookie 同步 =====
   function createVerifyAssistButton() {
     // 检查是否已存在
-    if (document.getElementById('pwa-verify-assist-btn')) return;
+    if (document.getElementById("pwa-verify-assist-btn")) return;
 
-    const btn = document.createElement('button');
-    btn.id = 'pwa-verify-assist-btn';
-    btn.innerHTML = '✓ 验证完成';
+    const btn = document.createElement("button");
+    btn.id = "pwa-verify-assist-btn";
+    btn.innerHTML = "✓ 验证完成";
     btn.style.cssText = `
       position: fixed !important;
       bottom: 20px !important;
@@ -723,14 +1069,14 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
     `;
 
-    btn.addEventListener('mouseover', () => {
-      btn.style.transform = 'scale(1.05)';
-      btn.style.boxShadow = '0 6px 20px rgba(0,0,0,0.4)';
+    btn.addEventListener("mouseover", () => {
+      btn.style.transform = "scale(1.05)";
+      btn.style.boxShadow = "0 6px 20px rgba(0,0,0,0.4)";
     });
 
-    btn.addEventListener('mouseout', () => {
-      btn.style.transform = 'scale(1)';
-      btn.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
+    btn.addEventListener("mouseout", () => {
+      btn.style.transform = "scale(1)";
+      btn.style.boxShadow = "0 4px 15px rgba(0,0,0,0.3)";
     });
 
     btn.onclick = async () => {
@@ -740,36 +1086,42 @@
         const url = window.location.href;
         const domain = window.location.hostname;
 
-        console.log('[PWA Adapt] Syncing cookies for domain:', domain);
+        console.log("[PWA Adapt] Syncing cookies for domain:", domain);
 
         // 发送到父容器
-        window.parent.postMessage({
-          type: 'ADAPT_SYNC_COOKIES',
-          payload: {
-            domain: domain,
-            url: url,
-            cookies: cookies,
-            userAgent: navigator.userAgent
-          }
-        }, '*');
+        window.parent.postMessage(
+          {
+            type: "ADAPT_SYNC_COOKIES",
+            payload: {
+              domain: domain,
+              url: url,
+              cookies: cookies,
+              userAgent: navigator.userAgent,
+            },
+          },
+          "*",
+        );
 
         // 显示成功反馈
-        btn.innerHTML = '✓ 已同步';
-        btn.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important';
+        btn.innerHTML = "✓ 已同步";
+        btn.style.background =
+          "linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important";
 
         setTimeout(() => {
-          btn.innerHTML = '✓ 验证完成';
-          btn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important';
+          btn.innerHTML = "✓ 验证完成";
+          btn.style.background =
+            "linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important";
         }, 2000);
-
       } catch (err) {
-        console.error('[PWA Adapt] Failed to sync cookies:', err);
-        btn.innerHTML = '✗ 失败';
-        btn.style.background = 'linear-gradient(135deg, #eb3349 0%, #f45c43 100%) !important';
+        console.error("[PWA Adapt] Failed to sync cookies:", err);
+        btn.innerHTML = "✗ 失败";
+        btn.style.background =
+          "linear-gradient(135deg, #eb3349 0%, #f45c43 100%) !important";
 
         setTimeout(() => {
-          btn.innerHTML = '✓ 验证完成';
-          btn.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important';
+          btn.innerHTML = "✓ 验证完成";
+          btn.style.background =
+            "linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important";
         }, 2000);
       }
     };
@@ -778,7 +1130,7 @@
     setTimeout(() => {
       if (document.body) {
         document.body.appendChild(btn);
-        console.log('[PWA Adapt] Verify assist button added');
+        console.log("[PWA Adapt] Verify assist button added");
       }
     }, 1000);
   }
@@ -787,20 +1139,22 @@
   function shouldShowVerifyButton() {
     // 检测常见的验证页面特征
     const title = document.title.toLowerCase();
-    const bodyText = document.body?.textContent?.toLowerCase() || '';
+    const bodyText = document.body?.textContent?.toLowerCase() || "";
 
     const verifyKeywords = [
-      'just a moment',
-      'checking your browser',
-      'captcha',
-      '验证码',
-      '安全验证',
-      '人机验证',
-      'cloudflare',
-      'please wait'
+      "just a moment",
+      "checking your browser",
+      "captcha",
+      "验证码",
+      "安全验证",
+      "人机验证",
+      "cloudflare",
+      "please wait",
     ];
 
-    return verifyKeywords.some(kw => title.includes(kw) || bodyText.includes(kw));
+    return verifyKeywords.some(
+      (kw) => title.includes(kw) || bodyText.includes(kw),
+    );
   }
 
   // 自动检测并显示按钮
@@ -820,8 +1174,8 @@
   }
 
   // 启动验证助手
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initVerifyAssist);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initVerifyAssist);
   } else {
     initVerifyAssist();
   }
@@ -830,8 +1184,8 @@
   window.pwaVerifyAssist = {
     showButton: createVerifyAssistButton,
     syncCookies: () => {
-      const btn = document.getElementById('pwa-verify-assist-btn');
+      const btn = document.getElementById("pwa-verify-assist-btn");
       if (btn) btn.click();
-    }
+    },
   };
 })();

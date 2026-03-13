@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-check-storage-permission"
+description = "Allows checking Android storage permission status"
+commands.allow = ["check_storage_permission"]

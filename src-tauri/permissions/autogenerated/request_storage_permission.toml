@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-request-storage-permission"
+description = "Allows requesting Android storage permission by opening settings"
+commands.allow = ["request_storage_permission"]

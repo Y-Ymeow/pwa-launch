@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-kv-get-all"
+description = "Allows getting all KV store entries for an app"
+commands.allow = ["kv_get_all"]

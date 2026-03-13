@@ -1,5 +1,6 @@
-use rusqlite::Connection;
-use tauri::{AppHandle, Emitter, Manager, State};
+use rusqlite::{Connection, OptionalExtension};
+use std::collections::HashMap;
+use tauri::{AppHandle, Manager, State};
 
 use crate::db::{get_app_data_dir, DbConnection};
 use crate::models::{AppInfo, CommandResponse, InstallRequest};
@@ -15,12 +16,15 @@ pub async fn install_pwa(
     let app_id = generate_app_id();
     let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     create_app_dirs(&app_id, &app_data_dir).map_err(|e| e.to_string())?;
+    
     let manifest = fetch_manifest_info(&request.url)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("解析 Manifest 失败: {}", e))?;
+    
     let name = request
         .name
         .unwrap_or_else(|| manifest.name.clone().unwrap_or("未知应用".to_string()));
+    
     let now = now_timestamp();
     let app_info = AppInfo {
         id: app_id.clone(),
@@ -38,6 +42,7 @@ pub async fn install_pwa(
             .display_mode
             .unwrap_or_else(|| "standalone".to_string()),
     };
+    
     let conn = db.inner().lock().map_err(|e| e.to_string())?;
     save_app_to_db(&conn, &app_info).map_err(|e| e.to_string())?;
     Ok(CommandResponse::success(app_info))
@@ -112,22 +117,45 @@ pub fn launch_app(
             window.set_focus().ok();
             return Ok(CommandResponse::success(window_id));
         }
+
+        // 转换 URL 以支持离线缓存
+        let pwa_url = if cfg!(target_os = "android") {
+            if app_url.starts_with("https://") {
+                format!("http://pwa-resource.localhost/https/{}", &app_url[8..])
+            } else if app_url.starts_with("http://") {
+                format!("http://pwa-resource.localhost/http/{}", &app_url[7..])
+            } else {
+                app_url.clone()
+            }
+        } else {
+            if app_url.starts_with("https://") {
+                format!("pwa-resource://localhost/https/{}", &app_url[8..])
+            } else if app_url.starts_with("http://") {
+                format!("pwa-resource://localhost/http/{}", &app_url[7..])
+            } else {
+                app_url.clone()
+            }
+        };
+
         let window = tauri::window::WindowBuilder::new(&app, &window_id)
             .title(&_app_name)
             .inner_size(1200.0, 800.0)
             .build()
             .map_err(|e| e.to_string())?;
+        
         let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
         let user_data_dir = get_app_data_dir(&app_id, &app_data_dir);
+        
         let webview_builder = tauri::webview::WebviewBuilder::new(
             format!("{}_webview", window_id),
             tauri::WebviewUrl::External(
-                app_url
+                pwa_url
                     .parse()
                     .map_err(|e: url::ParseError| e.to_string())?,
             ),
         )
         .data_directory(user_data_dir);
+
         window
             .add_child(
                 webview_builder,
@@ -137,17 +165,6 @@ pub fn launch_app(
             .map_err(|e| e.to_string())?;
     }
 
-    #[cfg(mobile)]
-    {
-        // 移动端通过插件调用 Android 的 launchPwaAsNewTask 方法
-        // 由于不能直接调用插件，这里发送自定义事件给前端，让前端通过插件启动
-        app.emit::<serde_json::Value>("launch-pwa-request", serde_json::json!({
-            "appId": app_id,
-            "name": _app_name,
-            "url": app_url,
-            "displayMode": _display_mode
-        })).map_err(|e: tauri::Error| e.to_string())?;
-    }
     Ok(CommandResponse::success(app_id))
 }
 
@@ -190,7 +207,33 @@ pub fn list_running_pwas(app: AppHandle) -> Result<CommandResponse<Vec<String>>,
 }
 
 #[tauri::command]
-pub fn update_pwa(_app_id: String) -> Result<CommandResponse<bool>, String> {
+pub fn update_pwa(
+    app_id: String,
+    app: tauri::AppHandle,
+    db: State<'_, DbConnection>,
+) -> Result<CommandResponse<bool>, String> {
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
+    let app_url: String = conn
+        .query_row(
+            "SELECT url FROM apps WHERE id = ?",
+            [app_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("查询应用失败: {}", e))?;
+
+    // 解析域名并删除对应的缓存目录
+    if let Ok(url) = url::Url::parse(&app_url) {
+        if let Some(domain) = url.host_str() {
+            let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+            let cache_dir = app_data_dir.join("pwa_cache").join(domain);
+            
+            if cache_dir.exists() {
+                log::info!("[PWA] Clearing cache for domain {}: {:?}", domain, cache_dir);
+                std::fs::remove_dir_all(cache_dir).map_err(|e| format!("清理缓存失败: {}", e))?;
+            }
+        }
+    }
+
     Ok(CommandResponse::success(true))
 }
 
@@ -206,13 +249,88 @@ pub fn close_pwa_window(
             return Ok(CommandResponse::success(true));
         }
     }
-    #[cfg(mobile)]
-    {
-        if let Some(main_window) = app.get_webview_window("main") {
-            let main_url = url::Url::parse("tauri://localhost/index.html").unwrap();
-            let _ = main_window.navigate(main_url);
+    Ok(CommandResponse::success(true))
+}
+
+#[tauri::command]
+pub fn kv_get_all(
+    app_id: String,
+    db: State<'_, DbConnection>,
+) -> Result<CommandResponse<HashMap<String, String>>, String> {
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT key, value FROM kv_store WHERE app_id = ?")
+        .map_err(|e| e.to_string())?;
+    
+    let rows = stmt.query_map([app_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }).map_err(|e| e.to_string())?;
+
+    let mut map = HashMap::new();
+    for row in rows {
+        if let Ok((k, v)) = row {
+            map.insert(k, v);
         }
     }
+    Ok(CommandResponse::success(map))
+}
+
+#[tauri::command]
+pub fn kv_set(
+    app_id: String,
+    key: String,
+    value: String,
+    db: State<'_, DbConnection>,
+) -> Result<CommandResponse<bool>, String> {
+    log::info!("[KV] Set: app_id={}, key={}", app_id, key);
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT OR REPLACE INTO kv_store (app_id, key, value) VALUES (?, ?, ?)",
+        [app_id, key, value],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(CommandResponse::success(true))
+}
+
+#[tauri::command]
+pub fn kv_get(
+    app_id: String,
+    key: String,
+    db: State<'_, DbConnection>,
+) -> Result<CommandResponse<Option<String>>, String> {
+    log::info!("[KV] Get: app_id={}, key={}", app_id, key);
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
+    let value = conn
+        .query_row(
+            "SELECT value FROM kv_store WHERE app_id = ? AND key = ?",
+            [app_id, key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e: rusqlite::Error| e.to_string())?;
+    Ok(CommandResponse::success(value))
+}
+
+#[tauri::command]
+pub fn kv_remove(
+    app_id: String,
+    key: String,
+    db: State<'_, DbConnection>,
+) -> Result<CommandResponse<bool>, String> {
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM kv_store WHERE app_id = ? AND key = ?", [app_id, key])
+        .map_err(|e| e.to_string())?;
+    Ok(CommandResponse::success(true))
+}
+
+#[tauri::command]
+pub fn kv_clear(
+    app_id: String,
+    db: State<'_, DbConnection>,
+) -> Result<CommandResponse<bool>, String> {
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM kv_store WHERE app_id = ?", [app_id])
+        .map_err(|e| e.to_string())?;
     Ok(CommandResponse::success(true))
 }
 
@@ -227,52 +345,101 @@ struct ManifestInfo {
     background_color: Option<String>,
     display_mode: Option<String>,
 }
+
 async fn fetch_manifest_info(
     url: &str,
 ) -> Result<ManifestInfo, Box<dyn std::error::Error + Send + Sync>> {
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0")
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .timeout(std::time::Duration::from_secs(10))
         .build()?;
+    
     let html = client.get(url).send().await?.text().await?;
-    let manifest_url = regex::Regex::new(r#"href=["']([^"']+\.json|[^"']+\.webmanifest)["']"#)
+    
+    // 1. 尝试从 HTML 中提取 Manifest 链接
+    // <link rel="manifest" href="...">
+    let manifest_url = regex::Regex::new(r#"<link\s+rel=["']manifest["']\s+href=["']([^"']+)["']"#)
         .unwrap()
         .captures(&html)
         .and_then(|cap| cap.get(1))
         .map(|m| absolute_url(m.as_str(), url));
+
+    // 2. 尝试从 HTML 中提取标题 (作为备份)
+    let html_title = regex::Regex::new(r#"<title>(.*?)</title>"#)
+        .unwrap()
+        .captures(&html)
+        .and_then(|cap| cap.get(1))
+        .map(|m| m.as_str().to_string());
+
+    // 3. 尝试从 HTML 中提取图标 (作为备份)
+    let html_icon = regex::Regex::new(r#"<link\s+rel=["'](?:icon|shortcut icon|apple-touch-icon)["']\s+href=["']([^"']+)["']"#)
+        .unwrap()
+        .captures(&html)
+        .and_then(|cap| cap.get(1))
+        .map(|m| absolute_url(m.as_str(), url));
+
     let mut info = ManifestInfo {
-        name: None,
-        icon_url: None,
+        name: html_title,
+        icon_url: html_icon,
         manifest_url: manifest_url.clone(),
-        start_url: None,
+        start_url: Some(url.to_string()),
         scope: None,
         theme_color: None,
         background_color: None,
         display_mode: None,
     };
+
+    // 4. 解析 Manifest JSON
     if let Some(m_url) = manifest_url {
-        if let Ok(m) = client
-            .get(&m_url)
-            .send()
-            .await?
-            .json::<serde_json::Value>()
-            .await
-        {
-            info.name = m["name"].as_str().map(String::from);
-            info.display_mode = m["display"].as_str().map(String::from);
+        log::info!("Fetching manifest from: {}", m_url);
+        if let Ok(resp) = client.get(&m_url).send().await {
+            if let Ok(m) = resp.json::<serde_json::Value>().await {
+                // 优先使用 Manifest 中的名称
+                if let Some(name) = m["name"].as_str().or(m["short_name"].as_str()) {
+                    info.name = Some(name.to_string());
+                }
+                
+                // 解析图标：找最大的一个
+                if let Some(icons) = m["icons"].as_array() {
+                    let mut best_icon: Option<(i32, String)> = None;
+                    for icon in icons {
+                        if let Some(src) = icon["src"].as_str() {
+                            let sizes = icon["sizes"].as_str().unwrap_or("0x0");
+                            let width = sizes.split('x').next().unwrap_or("0").parse::<i32>().unwrap_or(0);
+                            
+                            if best_icon.is_none() || width > best_icon.as_ref().unwrap().0 {
+                                best_icon = Some((width, absolute_url(src, &m_url)));
+                            }
+                        }
+                    }
+                    if let Some((_, src)) = best_icon {
+                        info.icon_url = Some(src);
+                    }
+                }
+
+                info.display_mode = m["display"].as_str().map(String::from);
+                info.theme_color = m["theme_color"].as_str().map(String::from);
+                info.background_color = m["background_color"].as_str().map(String::from);
+                info.start_url = m["start_url"].as_str().map(|s| absolute_url(s, url));
+            }
         }
     }
+
     Ok(info)
 }
+
 fn absolute_url(url: &str, base: &str) -> String {
     if url.starts_with("http") {
         return url.to_string();
     }
-    url::Url::parse(base)
-        .ok()
-        .and_then(|b| b.join(url).ok())
-        .map(|u| u.to_string())
-        .unwrap_or_else(|| url.to_string())
+    if let Ok(base_url) = url::Url::parse(base) {
+        if let Ok(joined) = base_url.join(url) {
+            return joined.to_string();
+        }
+    }
+    url.to_string()
 }
+
 fn save_app_to_db(conn: &Connection, app: &AppInfo) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT OR REPLACE INTO apps VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

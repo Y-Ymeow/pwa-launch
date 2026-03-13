@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-kv-set"
+description = "Allows setting a KV store entry"
+commands.allow = ["kv_set"]

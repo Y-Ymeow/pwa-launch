@@ -10,6 +10,7 @@ pub async fn proxy_fetch(
     method: String,
     headers: HashMap<String, String>,
     body: Option<String>,
+    response_type: Option<String>,
     cookie_store: State<'_, CookieStore>,
     proxy_config: State<'_, ProxyConfig>,
 ) -> Result<CommandResponse<serde_json::Value>, String> {
@@ -192,21 +193,33 @@ pub async fn proxy_fetch(
         response_bytes.to_vec()
     };
     
-    // 判断是否为二进制内容
-    let is_binary = content_type.starts_with("image/") 
-        || content_type.starts_with("application/octet-stream")
-        || content_type.starts_with("audio/")
-        || content_type.starts_with("video/")
-        || content_type.starts_with("application/pdf")
-        || content_type.starts_with("application/zip");
+    // 获取 response_type，默认为 "text"
+    let response_type = response_type.unwrap_or_else(|| "text".to_string()).to_lowercase();
     
-    // 如果是图片或二进制数据，转为 base64
-    let response_body = if is_binary {
-        use base64::Engine;
-        base64::engine::general_purpose::STANDARD.encode(&decompressed_bytes)
-    } else {
-        // 文本内容，尝试转为字符串
-        String::from_utf8_lossy(&decompressed_bytes).to_string()
+    // 根据 response_type 处理响应体
+    let (response_body, is_binary) = match response_type.as_str() {
+        "arraybuffer" | "blob" => {
+            // 返回 base64 编码的数据，前端可以转为 ArrayBuffer 或 Blob
+            use base64::Engine;
+            let base64_data = base64::engine::general_purpose::STANDARD.encode(&decompressed_bytes);
+            (base64_data, true)
+        }
+        "base64" => {
+            // 纯 base64 字符串返回
+            use base64::Engine;
+            let base64_data = base64::engine::general_purpose::STANDARD.encode(&decompressed_bytes);
+            (base64_data, false)
+        }
+        "json" => {
+            // JSON 格式，直接返回字符串，前端会解析
+            let text = String::from_utf8_lossy(&decompressed_bytes).to_string();
+            (text, false)
+        }
+        "text" | _ => {
+            // 文本格式（默认）
+            let text = String::from_utf8_lossy(&decompressed_bytes).to_string();
+            (text, false)
+        }
     };
 
     let elapsed = start_time.elapsed();
@@ -224,6 +237,7 @@ pub async fn proxy_fetch(
         "headers": response_headers,
         "body": response_body,
         "is_base64": is_binary,
+        "response_type": response_type,
         "encoding": if encoding.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(encoding) }
     })))
 }

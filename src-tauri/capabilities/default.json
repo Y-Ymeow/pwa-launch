@@ -25,7 +25,10 @@
         }
       ]
     },
-    "http:default",
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "fs://**" }]
+    },
     "allow-install-pwa",
     "allow-uninstall-pwa",
     "allow-list-apps",
@@ -52,6 +55,22 @@
     "allow-resolve-local-file-url",
     "allow-open-file-dialog",
     "allow-read-file-content",
+    "allow-read-file-range",
+    "allow-kv-get-all",
+    "allow-kv-set",
+    "allow-kv-get",
+    "allow-kv-remove",
+    "allow-kv-clear",
+    "allow-fs-read-dir",
+    "allow-fs-write-file",
+    "allow-fs-create-dir",
+    "allow-fs-remove",
+    "allow-fs-exists",
+    "allow-check-storage-permission",
+    "allow-request-storage-permission",
+    "allow-sync-webview-cookies",
+    "allow-open-webview",
+    "allow-close-current-webview",
     "os:default",
     "log:default",
     "dialog:default"

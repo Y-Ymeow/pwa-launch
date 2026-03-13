@@ -56,22 +56,26 @@ impl ProxySettings {
 pub mod backup;
 pub mod cookie;
 pub mod file_dialog;
+pub mod fs;
 pub mod opfs;
 pub mod proxy;
 pub mod pwa;
+pub mod pwa_resource_protocol;
 pub mod static_protocol;
-pub mod stream_file_protocol;
 pub mod stream_proxy;
+pub mod webview;
 pub mod ws_proxy;
 
 // 重新导出
 pub use backup::*;
 pub use cookie::*;
 pub use file_dialog::*;
+pub use fs::*;
 pub use opfs::*;
 pub use proxy::*;
 pub use pwa::*;
 pub use stream_proxy::*;
+pub use webview::*;
 pub use ws_proxy::*;
 
 // 辅助函数

@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-fs-create-dir"
+description = "Allows creating a directory"
+commands.allow = ["fs_create_dir"]

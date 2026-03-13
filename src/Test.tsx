@@ -8,8 +8,7 @@ export default function Test() {
 
   React.useEffect(() => {
     setUrl(
-      "http://127.0.0.1:8765/?file=" +
-        encodeURI("/home/ymeow/音乐/李茂珍 - 에피소드.mp3"),
+      "fs://localhost/" + encodeURI("/home/ymeow/音乐/李茂珍 - 에피소드.mp3"),
     );
 
     setImageUrl(
@@ -26,7 +25,8 @@ export default function Test() {
 
   return (
     <div>
-      <audio src={url} controls></audio>
+      <audio src={url}   controls>
+      </audio>
 
       <img src={imageUrl} alt="test" />
     </div>

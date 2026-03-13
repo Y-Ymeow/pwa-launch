@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import "./styles/App.css";
 import Test from "./Test";
+import "../adapt.js";
 
 // 可拖动的悬浮切换按钮组件
 interface DraggableSwitcherProps {
@@ -285,6 +286,12 @@ function App() {
 
     // 全局监听来自 iframe 的 adapt 请求
     const handleMessage = async (event: MessageEvent) => {
+      // 处理就绪信号
+      if (event.data?.type === "ADAPT_READY") {
+        event.source?.postMessage({ type: "ADAPT_PARENT_READY" }, "*");
+        return;
+      }
+
       // 只处理来自 iframe 的消息
       const iframe = Object.values(iframesRef.current).find(
         (f) => f.contentWindow === event.source,
@@ -543,6 +550,27 @@ function App() {
     }
   };
 
+  // 刷新并更新 PWA (清理缓存)
+  const handleUpdate = async (appId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    
+    if (!confirm("确定要清理本地缓存并检查更新吗？下次启动将重新从网络下载资源。")) return;
+
+    try {
+      const response = await invoke<CommandResponse<boolean>>("update_pwa", { appId });
+      if (response.success) {
+        showMessage("success", "本地缓存已清理，应用将在下次启动时加载最新资源");
+        
+        // 如果正在运行，建议用户重新加载
+        if (runningPwas.find(p => p.appId === appId)) {
+          refreshPwa(appId);
+        }
+      }
+    } catch (error) {
+      showMessage("error", `清理失败：${error}`);
+    }
+  };
+
   const showMessage = (type: "success" | "error", text: string) => {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 3000);
@@ -560,6 +588,38 @@ function App() {
 
   // 是否有活跃的PWA（显示iframe区域）
   const hasActivePwa = activePwaId && runningPwas.length > 0;
+
+  // 获取转换后的 PWA URL 以支持离线缓存
+  const getProxiedUrl = (url: string) => {
+    if (!url || !url.startsWith("http") || url.indexOf('localhost') || url.indexOf('127.0.0.1')) return url;
+    
+    try {
+      const parsed = new URL(url);
+      const protocol = parsed.protocol.replace(":", ""); // "http" or "https"
+      const domain = parsed.hostname;
+      const port = parsed.port ? `.port-${parsed.port}` : "";
+      
+      // 确保目录以 / 结尾
+      let path = parsed.pathname;
+      if (!path.endsWith("/") && !path.split("/").pop()?.includes(".")) {
+        path += "/";
+      }
+      path += parsed.search + parsed.hash;
+      
+      const isAndroid = /android/i.test(navigator.userAgent);
+      
+      if (isAndroid) {
+        // Android 格式: http://pwa-resource.localhost/https/domain.com/path
+        return `http://pwa-resource.localhost/${protocol}/${domain}${port}${path}`;
+      } else {
+        // 桌面端格式: pwa-resource://localhost/https/domain.com/path
+        return `pwa-resource://localhost/${protocol}/${domain}${port}${path}`;
+      }
+    } catch (e) {
+      console.error("URL 转换失败:", e);
+      return url;
+    }
+  };
 
   return (
     <div className="app">
@@ -594,7 +654,7 @@ function App() {
                 ref={(el) => {
                   if (el) iframesRef.current[pwa.appId] = el;
                 }}
-                src={pwa.url}
+                src={getProxiedUrl(pwa.url)}
                 sandbox={getIframeSandbox()}
                 allow="fullscreen; clipboard-write; autoplay"
                 onLoad={() => handleIframeLoad(pwa.appId)}
@@ -695,6 +755,13 @@ function App() {
                               : "🚀 启动"}
                         </button>
                         <button
+                          className="btn-update"
+                          onClick={(e) => handleUpdate(app.id, e)}
+                          title="清理本地缓存并更新"
+                        >
+                          🔄 更新
+                        </button>
+                        <button
                           className="btn-danger"
                           onClick={() => handleUninstall(app.id)}
                         >
@@ -764,6 +831,13 @@ function App() {
                       </span>
                     </div>
                     <div className="item-actions">
+                      <button
+                        className="btn-update-item"
+                        onClick={(e) => handleUpdate(pwa.appId, e)}
+                        title="清理缓存并从网络重新加载"
+                      >
+                        🔄
+                      </button>
                       <button
                         className="btn-refresh-item"
                         onClick={(e) => refreshPwa(pwa.appId, e)}

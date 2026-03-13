@@ -26,13 +26,15 @@
       }
     ],
     "security": {
-      "csp": {},
+        "csp": "default-src 'self' fs: asset: https://asset.localhost http: https:",
       "dangerousDisableAssetCspModification": true,
       "assetProtocol": {
         "enable": true,
         "scope": [
           "**",
           "$AUDIO/**",
+          "$HOME/**",
+          "/computer/**",
           "$VIDEO/**"
         ]
       }
