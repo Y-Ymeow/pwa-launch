@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-reinject-browser-ui"
+description = "允许重新注入浏览器 UI"
+commands.allow = ["reinject_browser_ui"]

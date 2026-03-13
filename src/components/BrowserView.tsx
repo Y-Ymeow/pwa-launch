@@ -171,6 +171,19 @@ export function BrowserView({
     }
   }, []);
 
+  // 定期检查并重新注入 UI（用于页面内跳转后）
+  useEffect(() => {
+    const checkInterval = setInterval(async () => {
+      try {
+        await invoke('reinject_browser_ui');
+      } catch (e) {
+        // 忽略错误
+      }
+    }, 3000);
+    
+    return () => clearInterval(checkInterval);
+  }, []);
+
   return (
     <div className="browser-view">
       {/* 本地地址栏 */}

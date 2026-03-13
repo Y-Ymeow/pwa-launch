@@ -72,6 +72,8 @@
     "allow-navigate-to-url",
     "allow-navigate-back",
     "allow-get-webview-info",
+    "allow-reinject-browser-ui",
+    "allow-check-browser-ui",
     "os:default",
     "log:default",
     "dialog:default"

@@ -145,6 +145,8 @@ pub fn run() {
             commands::navigate_to_url,
             commands::navigate_back,
             commands::get_webview_info,
+            commands::reinject_browser_ui,
+            commands::check_browser_ui,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

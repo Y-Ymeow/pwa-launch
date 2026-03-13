@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-check-browser-ui"
+description = "允许检查浏览器 UI 是否存在"
+commands.allow = ["check_browser_ui"]
