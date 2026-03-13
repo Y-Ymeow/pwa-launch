@@ -125,7 +125,7 @@ export function BrowserView({
         [{ url: finalUrl, title: finalUrl, timestamp: Date.now() }, ...prev.filter(h => h.url !== finalUrl)].slice(0, 50)
       );
     } catch (error) {
-      showMessage('error', `导航失败: ${error}`);
+      showMessage('error', `导航失败: ${String(error)}`);
     } finally {
       setIsLoading(false);
     }
@@ -154,7 +154,7 @@ export function BrowserView({
               showMessage("success", `应用 "${response.data.name}" 安装成功！`);
             }
           } catch (error) {
-            showMessage("error", `安装失败：${error}`);
+            showMessage("error", `安装失败：${String(error)}`);
           }
           break;
       }

@@ -48,7 +48,7 @@ export function AppList({
         showMessage("error", response.error || "安装失败");
       }
     } catch (error) {
-      showMessage("error", `安装失败：${error}`);
+      showMessage("error", `安装失败：${String(error)}`);
     } finally {
       setInstalling(false);
     }
@@ -67,7 +67,7 @@ export function AppList({
 
       {/* 快捷入口 */}
       <section className="quick-actions">
-        <button className="quick-btn browser-btn-large" onClick={openBrowser}>
+        <button className="quick-btn browser-btn-large" onClick={() => openBrowser()}>
           <span className="quick-icon">🌐</span>
           <span className="quick-text">打开浏览器</span>
         </button>
