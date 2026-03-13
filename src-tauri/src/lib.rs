@@ -65,11 +65,12 @@ pub fn run() {
                     }
                 }
                 })
-                .register_uri_scheme_protocol("adapt", |_app, _request| {            // 编译时嵌入 adapt.js 内容，避免运行时文件路径问题（Android 无法访问文件）
-            const ADAPT_JS: &str = include_str!("../../adapt.js");
-            
-            log::info!("[adapt] Serving adapt.js, size: {} bytes", ADAPT_JS.len());
-            
+                .register_uri_scheme_protocol("adapt", |_app, _request| {
+            // 编译时嵌入 adapt.min.js 内容，避免运行时文件路径问题（Android 无法访问文件）
+            const ADAPT_JS: &str = include_str!("../../adapt.min.js");
+
+            log::info!("[adapt] Serving adapt.min.js, size: {} bytes", ADAPT_JS.len());
+
             http::Response::builder()
                 .header("Content-Type", "application/javascript")
                 .header("Cache-Control", "public, max-age=3600")

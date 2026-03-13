@@ -1,130 +1,51 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager, WebviewWindow};
 use crate::models::CommandResponse;
 
-/// 浏览器 UI 脚本（注入到打开的页面，显示地址栏和返回按钮）
-const BROWSER_UI_JS: &str = r#"
-(function() {
-    if (window.__BROWSER_UI_INJECTED__) return;
-    window.__BROWSER_UI_INJECTED__ = true;
-    
-    // 创建浏览器 UI
-    const ui = document.createElement('div');
-    ui.id = 'pwa-browser-ui';
-    ui.innerHTML = `
-        <div style="
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 48px;
-            background: #1a1a2e;
-            display: flex;
-            align-items: center;
-            padding: 0 12px;
-            z-index: 2147483647;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        ">
-            <button id="pwa-back-btn" style="
-                background: rgba(255,255,255,0.1);
-                border: none;
-                color: white;
-                padding: 8px 16px;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 14px;
-                margin-right: 12px;
-            ">← 返回</button>
-            <div id="pwa-url-bar" style="
-                flex: 1;
-                background: rgba(255,255,255,0.1);
-                border-radius: 4px;
-                padding: 8px 12px;
-                color: rgba(255,255,255,0.8);
-                font-size: 13px;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            ">${location.href}</div>
-        </div>
-        <div style="height: 48px;"></div>
-    `;
-    
-    document.body.insertBefore(ui, document.body.firstChild);
-    
-    // 更新地址栏
-    const urlBar = document.getElementById('pwa-url-bar');
-    const updateUrl = () => {
-        urlBar.textContent = location.href;
-    };
-    window.addEventListener('popstate', updateUrl);
-    
-    // 返回按钮点击事件
-    document.getElementById('pwa-back-btn').onclick = function() {
-        if (history.length > 1) {
-            history.back();
-        } else if (window.parent !== window) {
-            // 在 iframe 中，通知父窗口关闭
-            window.parent.postMessage({ type: 'CLOSE_WEBVIEW' }, '*');
-        }
-    };
-})();
-"#;
-
-/// 打开一个新的 WebView 窗口（仅桌面端支持）
+/// 在当前 WebView 中打开 URL（不创建新窗口）
+/// 由前端 adapt.js 控制导航和显示浏览器 UI
 #[tauri::command]
-pub async fn open_webview(
-    app: AppHandle,
+pub async fn navigate_to_url(
+    window: WebviewWindow,
     url: String,
-    title: String,
-    width: Option<f64>,
-    height: Option<f64>,
-    _inject_adapt: Option<bool>,
-) -> Result<CommandResponse<String>, String> {
-    #[cfg(not(mobile))]
-    {
-        let label = format!("wv_{}", uuid::Uuid::new_v4().to_string().get(0..8).unwrap_or("tmp"));
-        
-        // 桌面端：创建新窗口
-        let window = tauri::window::WindowBuilder::new(&app, &label)
-            .title(&title)
-            .inner_size(width.unwrap_or(1000.0), height.unwrap_or(800.0))
-            .build()
-            .map_err(|e| format!("创建窗口失败: {:?}", e))?;
-
-        let webview_builder = tauri::webview::WebviewBuilder::new(
-            format!("{}_webview", label),
-            tauri::WebviewUrl::External(url.parse().map_err(|e: url::ParseError| e.to_string())?),
-        )
-        .initialization_script(BROWSER_UI_JS);
-
-        window.add_child(
-            webview_builder,
-            tauri::LogicalPosition::new(0.0, 0.0),
-            window.inner_size().unwrap(),
-        ).map_err(|e| format!("添加 WebView 失败: {:?}", e))?;
-        
-        log::info!("[WebView] Opened: {} (label: {})", url, label);
-        Ok(CommandResponse::success(label))
-    }
+) -> Result<CommandResponse<bool>, String> {
+    // 使用 eval 通知前端导航
+    let script = format!(
+        r#"window.__TAURI_NAVIGATE__ && window.__TAURI_NAVIGATE__("{}");"#,
+        url.replace("\"", "\\\"")
+    );
     
-    #[cfg(mobile)]
-    {
-        // 移动端不支持
-        Err("WebView 多窗口功能仅在桌面端可用".to_string())
-    }
+    window.eval(&script)
+        .map_err(|e| format!("导航失败: {:?}", e))?;
+    
+    log::info!("[WebView] Navigate to: {}", url);
+    Ok(CommandResponse::success(true))
 }
 
-/// 关闭当前的 WebView（仅桌面端）
+/// 返回上一页
 #[tauri::command]
-pub async fn close_current_webview() -> Result<CommandResponse<bool>, String> {
-    #[cfg(not(mobile))]
-    {
-        // 桌面端：通过消息通知关闭，实际关闭由前端处理
-        Ok(CommandResponse::success(true))
-    }
+pub async fn navigate_back(
+    window: WebviewWindow,
+) -> Result<CommandResponse<bool>, String> {
+    let script = r#"window.__TAURI_GO_BACK__ && window.__TAURI_GO_BACK__();"#;
     
-    #[cfg(mobile)]
-    {
-        Err("此功能仅在桌面端可用".to_string())
-    }
+    window.eval(&script)
+        .map_err(|e| format!("返回失败: {:?}", e))?;
+    
+    log::info!("[WebView] Navigate back");
+    Ok(CommandResponse::success(true))
+}
+
+/// 获取当前窗口的 WebView 列表（用于移动端获取 webview 引用）
+#[tauri::command]
+pub async fn get_webview_info(
+    app: AppHandle,
+) -> Result<CommandResponse<serde_json::Value>, String> {
+    let windows: Vec<String> = app.webview_windows()
+        .keys()
+        .cloned()
+        .collect();
+    
+    Ok(CommandResponse::success(serde_json::json!({
+        "windows": windows,
+    })))
 }
