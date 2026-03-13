@@ -877,3 +877,205 @@
   transform: translateY(-2px);
   box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
 }
+
+/* ===== 浏览器样式 ===== */
+
+.browser-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #1a1a2e;
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+}
+
+.browser-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.browser-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.browser-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.browser-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.browser-btn.install-btn {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.browser-btn.install-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+}
+
+.browser-address-bar {
+  flex: 1;
+  display: flex;
+}
+
+.browser-address-bar input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: none;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  color: white;
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.browser-address-bar input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.browser-iframe {
+  flex: 1;
+  border: none;
+  background: white;
+}
+
+.browser-welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  padding: 2rem;
+}
+
+.browser-welcome h2 {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+}
+
+.browser-welcome p {
+  opacity: 0.7;
+  margin-bottom: 2rem;
+}
+
+.browser-shortcuts {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.browser-shortcuts button {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.browser-shortcuts button:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.browser-history {
+  position: absolute;
+  top: 60px;
+  right: 1rem;
+  width: 350px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: #2d2d44;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  z-index: 200;
+}
+
+.history-empty {
+  padding: 2rem;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.history-item {
+  padding: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.history-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.history-title {
+  display: block;
+  color: white;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.history-url {
+  display: block;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 快捷入口 */
+.quick-actions {
+  padding: 0 1.5rem 1.5rem;
+}
+
+.quick-btn {
+  width: 100%;
+  padding: 1.5rem;
+  border: none;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  color: white;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.quick-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
+}
+
+.quick-icon {
+  font-size: 1.5rem;
+}
+
+.quick-text {
+  font-size: 1.1rem;
+  font-weight: 600;
+}

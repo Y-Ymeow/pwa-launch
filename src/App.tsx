@@ -1,8 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import "./styles/App.css";
-import Test from "./Test";
-import "../adapt.js";
+import "../adapt.min.js";
+
+// 浏览器模式类型
+type ViewMode = 'apps' | 'browser' | 'pwa';
+
+// 浏览器历史记录
+type BrowserHistoryItem = {
+  url: string;
+  title: string;
+  timestamp: number;
+};
 
 // 可拖动的悬浮切换按钮组件
 interface DraggableSwitcherProps {
@@ -164,6 +173,15 @@ interface ProxySettings {
 }
 
 function App() {
+  // 视图模式：apps(应用列表), browser(浏览器), pwa(运行的PWA)
+  const [viewMode, setViewMode] = useState<ViewMode>('apps');
+
+  // 浏览器状态
+  const [browserUrl, setBrowserUrl] = useState('');
+  const [browserHistory, setBrowserHistory] = useState<BrowserHistoryItem[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const browserIframeRef = useRef<HTMLIFrameElement>(null);
+
   const [apps, setApps] = useState<AppInfo[]>([]);
   const [installUrl, setInstallUrl] = useState("");
   const [installing, setInstalling] = useState(false);
@@ -553,14 +571,14 @@ function App() {
   // 刷新并更新 PWA (清理缓存)
   const handleUpdate = async (appId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    
+
     if (!confirm("确定要清理本地缓存并检查更新吗？下次启动将重新从网络下载资源。")) return;
 
     try {
       const response = await invoke<CommandResponse<boolean>>("update_pwa", { appId });
       if (response.success) {
         showMessage("success", "本地缓存已清理，应用将在下次启动时加载最新资源");
-        
+
         // 如果正在运行，建议用户重新加载
         if (runningPwas.find(p => p.appId === appId)) {
           refreshPwa(appId);
@@ -568,6 +586,74 @@ function App() {
       }
     } catch (error) {
       showMessage("error", `清理失败：${error}`);
+    }
+  };
+
+  // ===== 浏览器功能 =====
+
+  // 打开浏览器
+  const openBrowser = (url?: string) => {
+    if (url) {
+      setBrowserUrl(url);
+      addToHistory(url, url);
+    }
+    setViewMode('browser');
+    setActivePwaId(null);
+  };
+
+  // 关闭浏览器返回应用列表
+  const closeBrowser = () => {
+    setViewMode('apps');
+    setBrowserUrl('');
+  };
+
+  // 浏览器导航
+  const browserNavigate = (url: string) => {
+    if (!url.startsWith('http')) {
+      url = 'https://' + url;
+    }
+    setBrowserUrl(url);
+    addToHistory(url, url);
+    if (browserIframeRef.current) {
+      browserIframeRef.current.src = getProxiedUrl(url);
+    }
+  };
+
+  // 添加到历史
+  const addToHistory = (url: string, title: string) => {
+    setBrowserHistory(prev => {
+      const filtered = prev.filter(h => h.url !== url);
+      return [{ url, title, timestamp: Date.now() }, ...filtered].slice(0, 50);
+    });
+  };
+
+  // 浏览器刷新
+  const browserRefresh = () => {
+    if (browserIframeRef.current && browserUrl) {
+      browserIframeRef.current.src = getProxiedUrl(browserUrl);
+    }
+  };
+
+  // 从浏览器安装当前页面为 PWA
+  const installFromBrowser = async () => {
+    if (!browserUrl) return;
+
+    setInstalling(true);
+    try {
+      const response = await invoke<CommandResponse<AppInfo>>("install_pwa", {
+        request: { url: browserUrl },
+      });
+
+      if (response.success && response.data) {
+        showMessage("success", `应用 "${response.data.name}" 安装成功！`);
+        loadApps();
+      } else {
+        showMessage("error", response.error || "安装失败");
+      }
+    } catch (error) {
+      showMessage("error", `安装失败：${error}`);
+    } finally {
+      setInstalling(false);
     }
   };
 
@@ -628,51 +714,148 @@ function App() {
         <div className={`message ${message.type}`}>{message.text}</div>
       )}
 
-      {/* 主内容区 - 根据是否有活跃PWA切换布局 */}
-      <main className={`main ${hasActivePwa ? "with-pwa" : ""}`}>
-        {/* iframe 容器 - 显示运行的PWA */}
-        <div
-          className="iframe-container"
-          style={{ display: hasActivePwa ? "block" : "none" }}
-        >
-          {runningPwas.map((pwa) => (
-            <div
-              key={pwa.appId}
-              className={`iframe-wrapper ${activePwaId === pwa.appId ? "active" : ""}`}
-            >
-              {/* 恢复提示 */}
-              {restoringPwa === pwa.appId && (
-                <div className="restoring-overlay">
-                  <div className="restoring-content">
-                    <div className="spinner"></div>
-                    <span>正在恢复 {pwa.name}...</span>
+      {/* 主内容区 - 根据视图模式切换 */}
+      <main className={`main ${viewMode !== 'apps' ? "with-content" : ""}`}>
+        {/* PWA iframe 容器 */}
+        {viewMode === 'pwa' && (
+          <div className="iframe-container">
+            {runningPwas.map((pwa) => (
+              <div
+                key={pwa.appId}
+                className={`iframe-wrapper ${activePwaId === pwa.appId ? "active" : ""}`}
+              >
+                {restoringPwa === pwa.appId && (
+                  <div className="restoring-overlay">
+                    <div className="restoring-content">
+                      <div className="spinner"></div>
+                      <span>正在恢复 {pwa.name}...</span>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+                <iframe
+                  ref={(el) => {
+                    if (el) iframesRef.current[pwa.appId] = el;
+                  }}
+                  src={getProxiedUrl(pwa.url)}
+                  sandbox={getIframeSandbox()}
+                  allow="fullscreen; clipboard-write; autoplay"
+                  onLoad={() => handleIframeLoad(pwa.appId)}
+                  title={pwa.name}
+                />
+              </div>
+            ))}
+          </div>
+        )}
 
-              <iframe
-                ref={(el) => {
-                  if (el) iframesRef.current[pwa.appId] = el;
+        {/* 浏览器视图 */}
+        {viewMode === 'browser' && (
+          <div className="browser-container">
+            {/* 浏览器地址栏 */}
+            <div className="browser-toolbar">
+              <button className="browser-btn" onClick={closeBrowser} title="返回应用列表">
+                ←
+              </button>
+              <button className="browser-btn" onClick={browserRefresh} title="刷新">
+                ↻
+              </button>
+              <form
+                className="browser-address-bar"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  browserNavigate(browserUrl);
                 }}
-                src={getProxiedUrl(pwa.url)}
+              >
+                <input
+                  type="text"
+                  value={browserUrl}
+                  onChange={(e) => setBrowserUrl(e.target.value)}
+                  placeholder="输入网址..."
+                />
+              </form>
+              <button
+                className="browser-btn install-btn"
+                onClick={installFromBrowser}
+                disabled={!browserUrl || installing}
+                title="将当前页面安装为应用"
+              >
+                {installing ? '...' : '⬇️'}
+              </button>
+              <button
+                className="browser-btn"
+                onClick={() => setShowHistory(!showHistory)}
+                title="历史记录"
+              >
+                🕐
+              </button>
+            </div>
+
+            {/* 历史记录下拉 */}
+            {showHistory && (
+              <div className="browser-history">
+                {browserHistory.length === 0 ? (
+                  <div className="history-empty">暂无历史记录</div>
+                ) : (
+                  browserHistory.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="history-item"
+                      onClick={() => {
+                        browserNavigate(item.url);
+                        setShowHistory(false);
+                      }}
+                    >
+                      <span className="history-title">{item.title}</span>
+                      <span className="history-url">{item.url}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* 浏览器 iframe */}
+            {browserUrl ? (
+              <iframe
+                ref={browserIframeRef}
+                src={getProxiedUrl(browserUrl)}
                 sandbox={getIframeSandbox()}
                 allow="fullscreen; clipboard-write; autoplay"
-                onLoad={() => handleIframeLoad(pwa.appId)}
-                title={pwa.name}
+                className="browser-iframe"
               />
-            </div>
-          ))}
-        </div>
+            ) : (
+              <div className="browser-welcome">
+                <h2>🌐 内置浏览器</h2>
+                <p>在地址栏输入网址开始浏览</p>
+                <div className="browser-shortcuts">
+                  <button onClick={() => browserNavigate('https://www.bing.com')}>
+                    Bing
+                  </button>
+                  <button onClick={() => browserNavigate('https://www.baidu.com')}>
+                    百度
+                  </button>
+                  <button onClick={() => browserNavigate('https://github.com')}>
+                    GitHub
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 应用管理区域 */}
-        <div
-          className="management-area"
-          style={{ display: hasActivePwa ? "none" : "block" }}
-        >
-          <header className="header">
-            <h1>🚀 PWA Container</h1>
-            <p className="subtitle">最多同时运行 {MAX_IFRAMES} 个应用</p>
-          </header>
+        {viewMode === 'apps' && (
+          <div className="management-area">
+            <header className="header">
+              <h1>🚀 PWA Container</h1>
+              <p className="subtitle">应用管理 + 内置浏览器</p>
+            </header>
+
+            {/* 快捷入口 */}
+            <section className="quick-actions">
+              <button className="quick-btn browser-btn-large" onClick={() => openBrowser()}>
+                <span className="quick-icon">🌐</span>
+                <span className="quick-text">打开浏览器</span>
+              </button>
+            </section>
 
           {/* 安装表单 */}
           <section className="install-section">
@@ -746,7 +929,10 @@ function App() {
                       <div className="app-actions">
                         <button
                           className="btn-launch"
-                          onClick={() => launchOrSwitchPwa(app)}
+                          onClick={() => {
+                            launchOrSwitchPwa(app);
+                            setViewMode('pwa');
+                          }}
                         >
                           {isRunning
                             ? "🔀 切换"
@@ -777,8 +963,8 @@ function App() {
         </div>
       </main>
 
-      {/* 悬浮切换按钮 - 只在有运行PWA时显示 - 贴边可拖动 */}
-      {hasActivePwa && (
+      {/* 悬浮切换按钮 - 在PWA视图时显示 - 贴边可拖动 */}
+      {viewMode === 'pwa' && (
         <DraggableSwitcher
           runningCount={runningPwas.length}
           maxCount={MAX_IFRAMES}
@@ -792,6 +978,7 @@ function App() {
                 <button
                   className="btn-manage"
                   onClick={() => {
+                    setViewMode('apps');
                     setActivePwaId(null);
                     setShowSwitcher(false);
                   }}
@@ -802,22 +989,22 @@ function App() {
 
               <div className="running-list">
                 {runningPwas.map((pwa) => (
-                  <div
-                    key={pwa.appId}
-                    className={`running-item ${activePwaId === pwa.appId ? "active" : ""}`}
-                    onClick={() => {
-                      setActivePwaId(pwa.appId);
-                      setRunningPwas((prev) =>
-                        prev.map((p) =>
-                          p.appId === pwa.appId
-                            ? { ...p, lastAccessed: Date.now() }
-                            : p,
-                        ),
-                      );
-                      setShowSwitcher(false);
-                    }}
-                  >
-                    <div className="item-icon">
+                                  <div
+                                    key={pwa.appId}
+                                    className={`running-item ${activePwaId === pwa.appId ? "active" : ""}`}
+                                    onClick={() => {
+                                      setActivePwaId(pwa.appId);
+                                      setViewMode('pwa');
+                                      setRunningPwas((prev) =>
+                                        prev.map((p) =>
+                                          p.appId === pwa.appId
+                                            ? { ...p, lastAccessed: Date.now() }
+                                            : p,
+                                        ),
+                                      );
+                                      setShowSwitcher(false);
+                                    }}
+                                  >                    <div className="item-icon">
                       {getAppIcon(pwa.appId) ? (
                         <img src={getAppIcon(pwa.appId)} alt={pwa.name} />
                       ) : (
@@ -858,16 +1045,18 @@ function App() {
 
                 {/* 显示已暂停的（有快照的） */}
                 {Object.values(snapshots).map((snapshot) => (
-                  <div
-                    key={snapshot.appId}
-                    className="running-item snapshot"
-                    onClick={() => {
-                      const app = apps.find((a) => a.id === snapshot.appId);
-                      if (app) launchOrSwitchPwa(app);
-                      setShowSwitcher(false);
-                    }}
-                  >
-                    <div className="item-icon">
+                                  <div
+                                    key={snapshot.appId}
+                                    className="running-item snapshot"
+                                    onClick={() => {
+                                      const app = apps.find((a) => a.id === snapshot.appId);
+                                      if (app) {
+                                        launchOrSwitchPwa(app);
+                                        setViewMode('pwa');
+                                      }
+                                      setShowSwitcher(false);
+                                    }}
+                                  >                    <div className="item-icon">
                       {getAppIcon(snapshot.appId) ? (
                         <img
                           src={getAppIcon(snapshot.appId)}
@@ -889,8 +1078,8 @@ function App() {
         </DraggableSwitcher>
       )}
 
-      {/* 代理设置按钮 - 只在主窗口显示，不在 iframe 中显示 */}
-      {activePwaId === null && (
+      {/* 代理设置按钮 - 只在应用列表显示 */}
+      {viewMode === 'apps' && (
         <button
           className="proxy-settings-btn"
           onClick={() => setShowProxySettings(true)}
