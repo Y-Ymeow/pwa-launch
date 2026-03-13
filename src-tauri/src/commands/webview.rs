@@ -1,4 +1,4 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use crate::models::CommandResponse;
 
 /// 浏览器 UI 脚本（注入到打开的页面，显示地址栏和返回按钮）
@@ -107,12 +107,12 @@ pub async fn open_webview(
             )
             .initialization_script(BROWSER_UI_JS);
             
-            let size = window.inner_size().map_err(|e| format!("获取窗口大小失败: {:?}", e))?;
+            let size: tauri::PhysicalSize<u32> = window.inner_size().map_err(|e: tauri::Error| format!("获取窗口大小失败: {:?}", e))?;
             window.add_child(
                 webview_builder,
                 tauri::LogicalPosition::new(0.0, 0.0),
                 size,
-            ).map_err(|e| format!("添加 WebView 失败: {:?}", e))?;
+            ).map_err(|e: tauri::Error| format!("添加 WebView 失败: {:?}", e))?;
         }
     }
     
@@ -124,7 +124,7 @@ pub async fn open_webview(
 #[tauri::command]
 pub async fn close_current_webview(app: AppHandle) -> Result<CommandResponse<bool>, String> {
     // 找到并关闭 webview 窗口
-    let windows = app.webview_windows();
+    let windows: std::collections::HashMap<String, tauri::WebviewWindow> = app.webview_windows();
     for (label, window) in windows {
         if label.starts_with("wv_") {
             let _ = window.close();
