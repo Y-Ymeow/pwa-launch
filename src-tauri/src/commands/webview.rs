@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use crate::models::CommandResponse;
 
 /// 浏览器 UI 脚本（注入到打开的页面，显示地址栏和返回按钮）
@@ -34,7 +34,7 @@ const BROWSER_UI_JS: &str = r#"
                 font-size: 14px;
                 margin-right: 12px;
             ">← 返回</button>
-            <div style="
+            <div id="pwa-url-bar" style="
                 flex: 1;
                 background: rgba(255,255,255,0.1);
                 border-radius: 4px;
@@ -51,18 +51,26 @@ const BROWSER_UI_JS: &str = r#"
     
     document.body.insertBefore(ui, document.body.firstChild);
     
+    // 更新地址栏
+    const urlBar = document.getElementById('pwa-url-bar');
+    const updateUrl = () => {
+        urlBar.textContent = location.href;
+    };
+    window.addEventListener('popstate', updateUrl);
+    
     // 返回按钮点击事件
     document.getElementById('pwa-back-btn').onclick = function() {
-        if (window.__TAURI__) {
-            window.__TAURI__.invoke('close_current_webview', {});
-        } else {
+        if (history.length > 1) {
             history.back();
+        } else if (window.parent !== window) {
+            // 在 iframe 中，通知父窗口关闭
+            window.parent.postMessage({ type: 'CLOSE_WEBVIEW' }, '*');
         }
     };
 })();
 "#;
 
-/// 打开一个新的 WebView 窗口（桌面端）或在当前 WebView 导航（移动端）
+/// 打开一个新的 WebView 窗口（仅桌面端支持）
 #[tauri::command]
 pub async fn open_webview(
     app: AppHandle,
@@ -72,10 +80,10 @@ pub async fn open_webview(
     height: Option<f64>,
     _inject_adapt: Option<bool>,
 ) -> Result<CommandResponse<String>, String> {
-    let label = format!("wv_{}", uuid::Uuid::new_v4().to_string().get(0..8).unwrap_or("tmp"));
-    
     #[cfg(not(mobile))]
     {
+        let label = format!("wv_{}", uuid::Uuid::new_v4().to_string().get(0..8).unwrap_or("tmp"));
+        
         // 桌面端：创建新窗口
         let window = tauri::window::WindowBuilder::new(&app, &label)
             .title(&title)
@@ -94,43 +102,29 @@ pub async fn open_webview(
             tauri::LogicalPosition::new(0.0, 0.0),
             window.inner_size().unwrap(),
         ).map_err(|e| format!("添加 WebView 失败: {:?}", e))?;
+        
+        log::info!("[WebView] Opened: {} (label: {})", url, label);
+        Ok(CommandResponse::success(label))
     }
     
     #[cfg(mobile)]
     {
-        // 移动端：使用 tauri::Webview 创建
-        if let Some(window) = app.get_webview_window("main") {
-            let webview_label = format!("{}_webview", label);
-            let webview_builder = tauri::webview::WebviewBuilder::new(
-                &webview_label,
-                tauri::WebviewUrl::External(url.parse().map_err(|e: url::ParseError| e.to_string())?),
-            )
-            .initialization_script(BROWSER_UI_JS);
-            
-            let size: tauri::PhysicalSize<u32> = window.inner_size().map_err(|e: tauri::Error| format!("获取窗口大小失败: {:?}", e))?;
-            window.add_child(
-                webview_builder,
-                tauri::LogicalPosition::new(0.0, 0.0),
-                size,
-            ).map_err(|e: tauri::Error| format!("添加 WebView 失败: {:?}", e))?;
-        }
+        // 移动端不支持
+        Err("WebView 多窗口功能仅在桌面端可用".to_string())
     }
-    
-    log::info!("[WebView] Opened: {} (label: {})", url, label);
-    Ok(CommandResponse::success(label))
 }
 
-/// 关闭当前的 WebView
+/// 关闭当前的 WebView（仅桌面端）
 #[tauri::command]
-pub async fn close_current_webview(app: AppHandle) -> Result<CommandResponse<bool>, String> {
-    // 找到并关闭 webview 窗口
-    let windows: std::collections::HashMap<String, tauri::WebviewWindow> = app.webview_windows();
-    for (label, window) in windows {
-        if label.starts_with("wv_") {
-            let _ = window.close();
-            return Ok(CommandResponse::success(true));
-        }
+pub async fn close_current_webview() -> Result<CommandResponse<bool>, String> {
+    #[cfg(not(mobile))]
+    {
+        // 桌面端：通过消息通知关闭，实际关闭由前端处理
+        Ok(CommandResponse::success(true))
     }
     
-    Ok(CommandResponse::success(false))
+    #[cfg(mobile)]
+    {
+        Err("此功能仅在桌面端可用".to_string())
+    }
 }
