@@ -273,11 +273,11 @@ export function setupImageProxy(tauriBridge) {
     }, 1000);
   }
 
-  // DOM 准备好后立即执行
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initProxy);
-  } else {
+  // 页面完全加载后执行（包括所有资源）
+  if (document.readyState === 'complete') {
     initProxy();
+  } else {
+    window.addEventListener('load', initProxy);
   }
 }
 
