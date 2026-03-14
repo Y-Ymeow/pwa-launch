@@ -125,6 +125,38 @@ pub const INJECT_BROWSER_UI: &str = r#"
         document.body.style.paddingTop = '52px';
         document.documentElement.style.paddingTop = '52px';
         
+        // 修复浮动/固定定位的头部元素
+        const style = document.createElement('style');
+        style.id = '__browser_ui_fix_style__';
+        style.textContent = `
+            /* 给固定/浮动定位的头部元素添加顶部间距 */
+            *[style*="position: fixed"][style*="top: 0"],
+            *[style*="position:fixed"][style*="top:0"],
+            header[style*="position: fixed"],
+            header[style*="position:fixed"],
+            .header[style*="position: fixed"],
+            .header[style*="position:fixed"],
+            #header[style*="position: fixed"],
+            #header[style*="position:fixed"],
+            nav[style*="position: fixed"][style*="top: 0"],
+            nav[style*="position:fixed"][style*="top:0"],
+            .nav[style*="position: fixed"][style*="top: 0"],
+            .nav[style*="position:fixed"][style*="top:0"]
+            {
+                top: 52px !important;
+            }
+            
+            /* 处理 sticky 定位 */
+            *[style*="position: sticky"][style*="top: 0"],
+            *[style*="position:sticky"][style*="top:0"]
+            {
+                top: 52px !important;
+            }
+        `;
+        if (!document.getElementById('__browser_ui_fix_style__')) {
+            document.head.appendChild(style);
+        }
+        
         const host = document.createElement('div');
         host.id = '__browser_ui_host__';
         host.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;pointer-events:none;';
@@ -203,7 +235,11 @@ pub const INJECT_BROWSER_UI: &str = r#"
         
         // 返回主页
         homeBtn.addEventListener('click', () => {
-            window.parent.postMessage({ type: 'BROWSER_GO_BACK' }, '*');
+            if (window.__TAURI_INTERNALS__) {
+                window.__TAURI_INTERNALS__.invoke('navigate_back');
+            } else {
+                window.location.href = 'tauri://localhost'; // 回退到本地主页
+            }
         });
         
         // 刷新
