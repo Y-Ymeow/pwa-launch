@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use crate::commands::CookieStore;
 
 #[derive(serde::Deserialize)]
 struct ProxyRequest {
@@ -23,7 +24,7 @@ fn extract_domain(url: &str) -> Option<String> {
 /// 从 POST body 中解析目标 URL 和请求信息
 pub async fn handle_fetch_request_async(
     request: &tauri::http::Request<Vec<u8>>,
-    cookie_store: Option<&crate::models::CookieStore>,
+    cookie_store: Option<&CookieStore>,
 ) -> Result<tauri::http::Response<Vec<u8>>, String> {
     let uri = request.uri().to_string();
     
@@ -236,7 +237,7 @@ pub async fn handle_fetch_request_async(
 /// 同步包装（用于 Tauri 协议注册）
 pub fn handle_fetch_request(
     request: &tauri::http::Request<Vec<u8>>,
-    cookie_store: Option<&crate::models::CookieStore>,
+    cookie_store: Option<&CookieStore>,
 ) -> Result<tauri::http::Response<Vec<u8>>, String> {
     // 使用 block_on 在异步运行时中执行，避免阻塞主线程
     tauri::async_runtime::block_on(handle_fetch_request_async(request, cookie_store))

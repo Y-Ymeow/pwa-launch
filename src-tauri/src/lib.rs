@@ -71,7 +71,7 @@ pub fn run() {
             // Fetch 协议：fetch://example.com/path -> 代理 HTTP 请求
             // 比 invoke 快，不需要 postMessage 桥接
             // 从 app state 获取 CookieStore
-            let cookie_store = app.state::<models::CookieStore>();
+            let cookie_store = app.app_handle().state::<commands::CookieStore>();
             match commands::fetch_protocol::handle_fetch_request(&request, Some(&cookie_store)) {
                 Ok(res) => res,
                 Err(e) => {
