@@ -1,5 +1,5 @@
-use std::path::Path;
 use rusqlite::{Connection, Result};
+use std::path::Path;
 
 /// 获取应用特定的数据目录
 pub fn get_app_data_dir(app_id: &str, base_dir: &Path) -> PathBuf {

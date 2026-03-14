@@ -16,25 +16,30 @@ pub async fn proxy_fetch(
 ) -> Result<CommandResponse<serde_json::Value>, String> {
     use std::time::Instant;
     let start_time = Instant::now();
-    
+
     // 清洗 body：去除 JSON 序列化带来的多余引号
     let body = body.map(|b| {
         let trimmed = b.trim();
         if trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2 {
             // 去掉外层引号并处理转义字符
-            let inner = &trimmed[1..trimmed.len()-1];
-            inner.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", "\t").replace("\\\"", "\"").replace("\\\\", "\\")
+            let inner = &trimmed[1..trimmed.len() - 1];
+            inner
+                .replace("\\n", "\n")
+                .replace("\\r", "\r")
+                .replace("\\t", "\t")
+                .replace("\\\"", "\"")
+                .replace("\\\\", "\\")
         } else {
             b
         }
     });
-    
+
     log::info!("代理请求：{} {}", method, url);
     log::info!("Headers: {:?}", headers);
 
     let domain = extract_domain(&url);
     let cookies = cookie_store.read().await;
-    
+
     // 优先使用 WebView 同步的 cookies（验证助手同步的）
     let webview_cookie_header = cookies
         .get("webview")
@@ -46,24 +51,26 @@ pub async fn proxy_fetch(
                 .join("; ")
         })
         .filter(|s| !s.is_empty());
-    
+
     // 如果没有 WebView cookies，使用默认的
-    let cookie_header = webview_cookie_header.or_else(|| {
-        cookies
-            .get("default")
-            .and_then(|app_cookies| app_cookies.get(&domain))
-            .map(|c| {
-                c.iter()
-                    .map(|(k, v)| format!("{}={}", k, v))
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            })
-    }).unwrap_or_default();
-    
+    let cookie_header = webview_cookie_header
+        .or_else(|| {
+            cookies
+                .get("default")
+                .and_then(|app_cookies| app_cookies.get(&domain))
+                .map(|c| {
+                    c.iter()
+                        .map(|(k, v)| format!("{}={}", k, v))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+        })
+        .unwrap_or_default();
+
     if !cookie_header.is_empty() {
         log::info!("使用 Cookies: {}", cookie_header);
     }
-    
+
     drop(cookies);
 
     let mut client_builder = reqwest::Client::builder().default_headers({
@@ -86,9 +93,10 @@ pub async fn proxy_fetch(
         if proxy_settings.enabled {
             let proxy_url = proxy_settings.get_proxy_url();
             log::info!("使用代理: {}", proxy_url);
-            
-            client_builder = client_builder
-                .proxy(reqwest::Proxy::all(&proxy_url).map_err(|e| format!("代理配置失败：{}", e))?);
+
+            client_builder = client_builder.proxy(
+                reqwest::Proxy::all(&proxy_url).map_err(|e| format!("代理配置失败：{}", e))?,
+            );
         }
     }
     drop(proxy);
@@ -99,14 +107,14 @@ pub async fn proxy_fetch(
 
     // 处理 method 大小写不敏感
     let method_upper = method.to_uppercase();
-    
+
     // 处理 GET 请求带 body 的情况 - 将 body 转为 query 参数
     let final_url = if method_upper == "GET" && body.is_some() {
         let body_str = body.as_ref().unwrap();
         // 尝试解析 body 为 form 参数并添加到 URL
         if body_str.starts_with('"') && body_str.ends_with('"') {
             // 去除外层引号
-            let clean_body = &body_str[1..body_str.len()-1];
+            let clean_body = &body_str[1..body_str.len() - 1];
             if url.contains('?') {
                 format!("{}&{}", url, clean_body)
             } else {
@@ -159,28 +167,33 @@ pub async fn proxy_fetch(
         .collect();
 
     // 根据 Content-Type 决定如何处理响应体
-    let _content_type = response_headers.get("content-type")
+    let _content_type = response_headers
+        .get("content-type")
         .map(|s| s.to_lowercase())
         .unwrap_or_default();
-    
+
     // 检查是否需要自动解压（gzip 或 br 压缩）
-    let encoding = response_headers.get("content-encoding")
+    let encoding = response_headers
+        .get("content-encoding")
         .map(|s| s.to_lowercase())
         .unwrap_or_default();
-    
+
     // 读取响应体为 bytes（带大小限制）
     log::info!("开始读取响应体...");
     let response_bytes = response
         .bytes()
         .await
         .map_err(|e| format!("读取响应失败：{}", e))?;
-    
+
     // 限制最大响应大小 10MB
     const MAX_SIZE: usize = 10 * 1024 * 1024;
     if response_bytes.len() > MAX_SIZE {
-        return Err(format!("响应体过大：{} bytes (最大限制 10MB)", response_bytes.len()));
+        return Err(format!(
+            "响应体过大：{} bytes (最大限制 10MB)",
+            response_bytes.len()
+        ));
     }
-    
+
     // 自动解压压缩内容
     let decompressed_bytes = if encoding.contains("gzip") {
         use flate2::read::GzDecoder;
@@ -188,14 +201,20 @@ pub async fn proxy_fetch(
         let mut decoder = GzDecoder::new(&response_bytes[..]);
         let mut decompressed = Vec::new();
         let _ = decoder.read_to_end(&mut decompressed);
-        if decompressed.is_empty() { response_bytes.to_vec() } else { decompressed }
+        if decompressed.is_empty() {
+            response_bytes.to_vec()
+        } else {
+            decompressed
+        }
     } else {
         response_bytes.to_vec()
     };
-    
+
     // 获取 response_type，默认为 "text"
-    let response_type = response_type.unwrap_or_else(|| "text".to_string()).to_lowercase();
-    
+    let response_type = response_type
+        .unwrap_or_else(|| "text".to_string())
+        .to_lowercase();
+
     // 根据 response_type 处理响应体
     let (response_body, is_binary) = match response_type.as_str() {
         "arraybuffer" | "blob" => {
@@ -223,13 +242,23 @@ pub async fn proxy_fetch(
     };
 
     let elapsed = start_time.elapsed();
-    
+
     // 调试日志：显示返回内容的前 200 个字符（按字符截取，避免切断 UTF-8）
     if response_body.len() < 500 {
-        log::info!("代理响应 [{}] body: {} (耗时: {:?})", url, response_body, elapsed);
+        log::info!(
+            "代理响应 [{}] body: {} (耗时: {:?})",
+            url,
+            response_body,
+            elapsed
+        );
     } else {
         let truncated: String = response_body.chars().take(200).collect();
-        log::info!("代理响应 [{}] body: {}... (耗时: {:?})", url, truncated, elapsed);
+        log::info!(
+            "代理响应 [{}] body: {}... (耗时: {:?})",
+            url,
+            truncated,
+            elapsed
+        );
     }
 
     Ok(CommandResponse::success(serde_json::json!({

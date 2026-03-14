@@ -26,7 +26,7 @@
       }
     ],
     "security": {
-        "csp": "default-src 'self' fs: asset: https://asset.localhost http: https:",
+      "csp": "default-src 'self'; standard-src 'self' asset:;audio-src 'self' asset:;",
       "dangerousDisableAssetCspModification": true,
       "assetProtocol": {
         "enable": true,
@@ -34,6 +34,12 @@
           "**",
           "$AUDIO/**",
           "$HOME/**",
+          "$HOME/Music/**",
+          "$HOME/Videos/**",
+          "$HOME/音乐/**",
+          "$HOME/视频/**",
+          "/computer/Music/.*",
+          "/computer/Music/**",
           "/computer/**",
           "$VIDEO/**"
         ]

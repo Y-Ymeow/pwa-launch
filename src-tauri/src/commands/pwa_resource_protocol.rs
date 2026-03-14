@@ -1,14 +1,25 @@
-use tauri::http::{Request, Response};
-use std::path::{PathBuf, Path};
 use std::fs;
+use std::path::{Path, PathBuf};
+use tauri::http::{Request, Response};
 use tauri::Manager;
 use url::Url;
 
 // 缓存白名单
 const CACHE_WHITELIST: &[&str] = &[
-    "html", "htm", "js", "mjs", "cjs", "css", 
-    "json", "webmanifest",
-    "woff", "woff2", "ttf", "otf", "svg", "map"
+    "html",
+    "htm",
+    "js",
+    "mjs",
+    "cjs",
+    "css",
+    "json",
+    "webmanifest",
+    "woff",
+    "woff2",
+    "ttf",
+    "otf",
+    "svg",
+    "map",
 ];
 
 pub fn handle_resource_request(
@@ -20,13 +31,13 @@ pub fn handle_resource_request(
     let url_obj = Url::parse(&uri)?;
     let uri_path = url_obj.path();
     log::info!("[PWAResource] Raw URI: {}, path: {}", uri, uri_path);
-    
+
     // 0. 检测本地开发地址，直接代理而不走缓存逻辑
-    let is_local_dev = uri_path.contains("localhost") 
+    let is_local_dev = uri_path.contains("localhost")
         || uri_path.contains("127.0.0.1")
         || uri_path.contains("192.168.")
         || uri_path.contains("10.0.");
-    
+
     if is_local_dev {
         let original_url = if let Some(pos) = uri.find("/http/") {
             let path_part = &uri[pos + 6..];
@@ -39,14 +50,17 @@ pub fn handle_resource_request(
         } else {
             uri.clone()
         };
-        
-        log::info!("[PWAResource] Local dev mode, direct proxy: {}", original_url);
-        
+
+        log::info!(
+            "[PWAResource] Local dev mode, direct proxy: {}",
+            original_url
+        );
+
         let client = reqwest::blocking::Client::builder()
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
-        
+
         let resp = match client.get(&original_url).send() {
             Ok(r) => r,
             Err(e) => {
@@ -55,55 +69,64 @@ pub fn handle_resource_request(
                     .body(format!("Proxy Error: {}", e).into_bytes())?);
             }
         };
-        
+
         let status = resp.status().as_u16();
-        let mime = resp.headers()
+        let mime = resp
+            .headers()
             .get("content-type")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
-        
+
         let content = resp.bytes()?.to_vec();
-        
+
         let mut response_builder = Response::builder()
             .status(status)
             .header("Access-Control-Allow-Origin", "*");
-        
+
         if let Some(m) = mime {
             response_builder = response_builder.header("Content-Type", m);
         }
-        
+
         return Ok(response_builder.body(content)?);
     }
-    
+
     // 1. 解析请求
     // 情况A: /https/y-ymeow.github.io/musicplayer-pwa/index.html
     // 情况B: /assets/xxx.js (相对路径请求，需要从Referer恢复)
-    
-    let (proto, domain, file_path, ctx_str) = 
-        if let Some(pos) = uri_path.find("/https/") {
-            // 直接请求，提取完整路径
-            let after = &uri_path[pos + 7..]; // y-ymeow.github.io/musicplayer-pwa/index.html
-            // show uri path in log
-            log::info!("[PWAResource] URI Path: {}", after);
-            parse_path("https", after, uri_path)
-        } else if let Some(pos) = uri_path.find("/http/") {
-            let after = &uri_path[pos + 6..];
-            parse_path("http", after, uri_path)
-        } else {
-            // 相对路径请求如 /assets/xxx.js，从 Referer 恢复
-            resolve_relative_path(uri_path, headers, &uri)?
-        };
-    
-    log::info!("[PWAResource] Parsed: proto={}, domain={}, path='{}'", proto, domain, file_path);
+
+    let (proto, domain, file_path, ctx_str) = if let Some(pos) = uri_path.find("/https/") {
+        // 直接请求，提取完整路径
+        let after = &uri_path[pos + 7..]; // y-ymeow.github.io/musicplayer-pwa/index.html
+                                          // show uri path in log
+        log::info!("[PWAResource] URI Path: {}", after);
+        parse_path("https", after, uri_path)
+    } else if let Some(pos) = uri_path.find("/http/") {
+        let after = &uri_path[pos + 6..];
+        parse_path("http", after, uri_path)
+    } else {
+        // 相对路径请求如 /assets/xxx.js，从 Referer 恢复
+        resolve_relative_path(uri_path, headers, &uri)?
+    };
+
+    log::info!(
+        "[PWAResource] Parsed: proto={}, domain={}, path='{}'",
+        proto,
+        domain,
+        file_path
+    );
 
     // 2. 构建原始 URL
-    let query = url_obj.query().map(|q| format!("?{}", q)).unwrap_or_default();
+    let query = url_obj
+        .query()
+        .map(|q| format!("?{}", q))
+        .unwrap_or_default();
     let original_url = format!("{}://{}{}{}", proto, domain, file_path, query);
     log::info!("[PWAResource] Proxy: {} -> {}", uri, original_url);
 
     // 3. 缓存处理
     let domain_name: &str = domain.split(':').next().unwrap_or("unknown");
-    let ext = Path::new(&file_path).extension()
+    let ext = Path::new(&file_path)
+        .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
@@ -118,59 +141,79 @@ pub fn handle_resource_request(
     };
 
     // 4. 加载资源
-    let (content, remote_mime, status) = 
-        match fetch_from_network(&original_url, should_cache, &local_file_path, proto, &domain, &file_path) {
-            Ok((c, m, s)) if s == 200 => (c, m, s),
-            Ok((c, m, s)) => {
-                if should_cache && local_file_path.exists() {
-                    log::warn!("[PWAResource] Network returned {}, trying cache", s);
-                    match fs::read(&local_file_path) {
-                        Ok(cache_content) => (cache_content, None, 200),
-                        Err(_) => (c, m, s)
-                    }
-                } else {
-                    (c, m, s)
+    let (content, remote_mime, status) = match fetch_from_network(
+        &original_url,
+        should_cache,
+        &local_file_path,
+        proto,
+        &domain,
+        &file_path,
+    ) {
+        Ok((c, m, s)) if s == 200 => (c, m, s),
+        Ok((c, m, s)) => {
+            if should_cache && local_file_path.exists() {
+                log::warn!("[PWAResource] Network returned {}, trying cache", s);
+                match fs::read(&local_file_path) {
+                    Ok(cache_content) => (cache_content, None, 200),
+                    Err(_) => (c, m, s),
                 }
+            } else {
+                (c, m, s)
             }
-            Err(e) => {
-                if should_cache && local_file_path.exists() {
-                    log::warn!("[PWAResource] Network error: {}, using cache", e);
-                    match fs::read(&local_file_path) {
-                        Ok(cache_content) => (cache_content, None, 200),
-                        Err(_) => return Err(e)
-                    }
-                } else {
-                    return Err(e);
+        }
+        Err(e) => {
+            if should_cache && local_file_path.exists() {
+                log::warn!("[PWAResource] Network error: {}, using cache", e);
+                match fs::read(&local_file_path) {
+                    Ok(cache_content) => (cache_content, None, 200),
+                    Err(_) => return Err(e),
                 }
+            } else {
+                return Err(e);
             }
-        };
+        }
+    };
 
     // 5. 响应
     let mut response = build_response(&local_file_path, content, remote_mime, status)?;
     response.headers_mut().insert(
         "Set-Cookie",
-        format!("pwa_context={}; Path=/; Max-Age=3600; SameSite=Lax", ctx_str).parse().unwrap()
+        format!(
+            "pwa_context={}; Path=/; Max-Age=3600; SameSite=Lax",
+            ctx_str
+        )
+        .parse()
+        .unwrap(),
     );
     Ok(response)
 }
 
 // 解析直接请求的路径
-fn parse_path<'a>(proto: &'a str, after_proto: &str, _uri_path: &str) -> (&'a str, String, String, String) {
+fn parse_path<'a>(
+    proto: &'a str,
+    after_proto: &str,
+    _uri_path: &str,
+) -> (&'a str, String, String, String) {
     // after_proto: y-ymeow.github.io/musicplayer-pwa/index.html
     let parts: Vec<&str> = after_proto.splitn(2, '/').collect();
     // show parts in log
     log::info!("[PWAResource] After Proto: {}", parts[0]);
     log::info!("[PWAResource] After Proto: {}", parts[1]);
     let domain = parts[0].to_string();
-    
+
     let file_path = if parts.len() > 1 {
         format!("/{}", parts[1])
     } else {
         "/".to_string()
     };
 
-    log::info!("[PWAResource] Parsed: proto={}, domain={}, path='{}'", proto, domain, file_path);
-    
+    log::info!(
+        "[PWAResource] Parsed: proto={}, domain={}, path='{}'",
+        proto,
+        domain,
+        file_path
+    );
+
     let ctx_str = format!("{}/{}", proto, domain);
     (proto, domain, file_path, ctx_str)
 }
@@ -179,18 +222,23 @@ fn parse_path<'a>(proto: &'a str, after_proto: &str, _uri_path: &str) -> (&'a st
 fn resolve_relative_path(
     uri_path: &str,
     headers: &tauri::http::HeaderMap,
-    _uri: &str
+    _uri: &str,
 ) -> Result<(&'static str, String, String, String), Box<dyn std::error::Error>> {
     // 从 Referer 获取基础路径
     // Referer: pwa-resource://localhost/https/y-ymeow.github.io/musicplayer-pwa/index.html
     // show headers in log
     println!("[PWAResource] Headers: {:?}", headers);
-    let referer = headers.get("referer")
+    let referer = headers
+        .get("referer")
         .and_then(|r| r.to_str().ok())
         .ok_or("Missing referer for relative path")?;
-    
-    log::info!("[PWAResource] Resolving relative path '{}' from referer: {}", uri_path, referer);
-    
+
+    log::info!(
+        "[PWAResource] Resolving relative path '{}' from referer: {}",
+        uri_path,
+        referer
+    );
+
     // 提取 referer 中的协议、域名和基础路径
     let (proto, after_proto) = if let Some(pos) = referer.find("/https/") {
         ("https", &referer[pos + 7..])
@@ -199,11 +247,11 @@ fn resolve_relative_path(
     } else {
         return Err("Invalid referer format".into());
     };
-    
+
     // after_proto: y-ymeow.github.io/musicplayer-pwa/index.html
     let parts: Vec<&str> = after_proto.splitn(2, '/').collect();
     let domain = parts[0].to_string();
-    
+
     // 提取基础路径（去掉文件名）
     let base_path = if parts.len() > 1 {
         let path_part = parts[1];
@@ -216,7 +264,7 @@ fn resolve_relative_path(
     } else {
         "/".to_string()
     };
-    
+
     // 组合完整路径: base_path + uri_path
     // base_path: /musicplayer-pwa/
     // uri_path: /assets/xxx.js
@@ -226,34 +274,42 @@ fn resolve_relative_path(
     } else {
         format!("{}/{}", base_path.trim_end_matches('/'), uri_path)
     };
-    
+
     let ctx_str = format!("{}/{}", proto, domain);
-    log::info!("[PWAResource] Resolved: base='{}', file='{}'", base_path, file_path);
-    
+    log::info!(
+        "[PWAResource] Resolved: base='{}', file='{}'",
+        base_path,
+        file_path
+    );
+
     Ok((proto, domain, file_path, ctx_str))
 }
 
 fn fetch_from_network(
-    url: &str, 
-    should_cache: bool, 
+    url: &str,
+    should_cache: bool,
     cache_path: &PathBuf,
     proto: &str,
     domain: &str,
-    file_path: &str
+    file_path: &str,
 ) -> Result<(Vec<u8>, Option<String>, u16), Box<dyn std::error::Error>> {
     log::info!("[PWAResource] Fetching: {}", url);
     let client = reqwest::blocking::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .timeout(std::time::Duration::from_secs(15))
         .build()?;
-    
+
     let mut resp = match client.get(url).send() {
         Ok(r) => r,
         Err(e) => return Ok((format!("Error: {}", e).into_bytes(), None, 502)),
     };
 
     let status = resp.status().as_u16();
-    let mime = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
+    let mime = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
     let mut content = Vec::new();
     let _ = resp.copy_to(&mut content);
 
@@ -266,14 +322,17 @@ fn fetch_from_network(
             } else {
                 "/"
             };
-            let base_url = format!("pwa-resource://localhost/{}/{}{}", proto, domain, base_file_path);
-            
+            let base_url = format!(
+                "pwa-resource://localhost/{}/{}{}",
+                proto, domain, base_file_path
+            );
+
             // 替换各种相对路径引用
             // 1. src="./xxx" -> src="pwa-resource://.../xxx"
             // 2. href="./xxx" -> href="pwa-resource://.../xxx"
             // 3. url(./xxx) -> url(pwa-resource://.../xxx)
             // 4. src="/xxx" -> src="pwa-resource://.../xxx" (相对于根)
-            
+
             // 使用正则替换各种属性中的路径
             html = html.replace("src=\"./", &format!("src=\"{}", base_url));
             html = html.replace("src='./", &format!("src='{}", base_url));
@@ -283,18 +342,24 @@ fn fetch_from_network(
             html = html.replace("src='/", &format!("src='{}", base_url));
             html = html.replace("href=\"/", &format!("href=\"{}", base_url));
             html = html.replace("href='/", &format!("href='{}", base_url));
-            
+
             // 处理 CSS url()
             html = html.replace("url(./", &format!("url({}", base_url));
             html = html.replace("url(/", &format!("url({}", base_url));
-            
+
             // 处理 import "./xxx"
             html = html.replace("import \"./", &format!("import \"{}", base_url));
             html = html.replace("import './", &format!("import '{}", base_url));
-            
-            log::info!("[PWAResource] Replaced relative paths with base: {}", base_url);
-            
-            log::info!("[PWAResource] Replaced relative paths with base: {}", base_url);
+
+            log::info!(
+                "[PWAResource] Replaced relative paths with base: {}",
+                base_url
+            );
+
+            log::info!(
+                "[PWAResource] Replaced relative paths with base: {}",
+                base_url
+            );
             content = html.into_bytes();
         }
     }
@@ -306,12 +371,25 @@ fn fetch_from_network(
     Ok((content, mime, status))
 }
 
-fn build_response(path: &PathBuf, content: Vec<u8>, mime_override: Option<String>, status: u16) -> Result<Response<Vec<u8>>, Box<dyn std::error::Error>> {
-    let mime = if let Some(m) = mime_override { m } else {
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+fn build_response(
+    path: &PathBuf,
+    content: Vec<u8>,
+    mime_override: Option<String>,
+    status: u16,
+) -> Result<Response<Vec<u8>>, Box<dyn std::error::Error>> {
+    let mime = if let Some(m) = mime_override {
+        m
+    } else {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
         match ext.as_str() {
             "html" | "htm" => "text/html".to_string(),
-            "js" | "mjs" | "cjs" | "ts" | "mts" | "jsx" | "tsx" => "application/javascript".to_string(),
+            "js" | "mjs" | "cjs" | "ts" | "mts" | "jsx" | "tsx" => {
+                "application/javascript".to_string()
+            }
             "css" => "text/css".to_string(),
             "json" | "map" => "application/json".to_string(),
             "png" => "image/png".to_string(),

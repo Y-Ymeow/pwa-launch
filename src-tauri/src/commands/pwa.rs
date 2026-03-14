@@ -16,15 +16,15 @@ pub async fn install_pwa(
     let app_id = generate_app_id();
     let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     create_app_dirs(&app_id, &app_data_dir).map_err(|e| e.to_string())?;
-    
+
     let manifest = fetch_manifest_info(&request.url)
         .await
         .map_err(|e| format!("解析 Manifest 失败: {}", e))?;
-    
+
     let name = request
         .name
         .unwrap_or_else(|| manifest.name.clone().unwrap_or("未知应用".to_string()));
-    
+
     let now = now_timestamp();
     let app_info = AppInfo {
         id: app_id.clone(),
@@ -42,7 +42,7 @@ pub async fn install_pwa(
             .display_mode
             .unwrap_or_else(|| "standalone".to_string()),
     };
-    
+
     let conn = db.inner().lock().map_err(|e| e.to_string())?;
     save_app_to_db(&conn, &app_info).map_err(|e| e.to_string())?;
     Ok(CommandResponse::success(app_info))
@@ -118,19 +118,18 @@ pub fn launch_app(
             return Ok(CommandResponse::success(window_id));
         }
 
-        // 转换 URL 以支持离线缓存 - 使用本地 HTTP 服务器
-        let pwa_url = crate::local_server::get_pwa_url(&app_url)
-            .unwrap_or_else(|| app_url.clone());
+        // 直接使用原始 URL
+        let pwa_url = app_url.clone();
 
         let window = tauri::window::WindowBuilder::new(&app, &window_id)
             .title(&_app_name)
             .inner_size(1200.0, 800.0)
             .build()
             .map_err(|e| e.to_string())?;
-        
+
         let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
         let user_data_dir = get_app_data_dir(&app_id, &app_data_dir);
-        
+
         let webview_builder = tauri::webview::WebviewBuilder::new(
             format!("{}_webview", window_id),
             tauri::WebviewUrl::External(
@@ -199,11 +198,9 @@ pub fn update_pwa(
 ) -> Result<CommandResponse<bool>, String> {
     let conn = db.inner().lock().map_err(|e| e.to_string())?;
     let app_url: String = conn
-        .query_row(
-            "SELECT url FROM apps WHERE id = ?",
-            [app_id],
-            |row| row.get(0),
-        )
+        .query_row("SELECT url FROM apps WHERE id = ?", [app_id], |row| {
+            row.get(0)
+        })
         .map_err(|e| format!("查询应用失败: {}", e))?;
 
     // 解析域名并删除对应的缓存目录
@@ -211,9 +208,13 @@ pub fn update_pwa(
         if let Some(domain) = url.host_str() {
             let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
             let cache_dir = app_data_dir.join("pwa_cache").join(domain);
-            
+
             if cache_dir.exists() {
-                log::info!("[PWA] Clearing cache for domain {}: {:?}", domain, cache_dir);
+                log::info!(
+                    "[PWA] Clearing cache for domain {}: {:?}",
+                    domain,
+                    cache_dir
+                );
                 std::fs::remove_dir_all(cache_dir).map_err(|e| format!("清理缓存失败: {}", e))?;
             }
         }
@@ -224,11 +225,9 @@ pub fn update_pwa(
 
 /// 强制清除所有缓存（解决 404 问题）
 #[tauri::command]
-pub fn clear_all_cache(
-    app: tauri::AppHandle,
-) -> Result<CommandResponse<bool>, String> {
+pub fn clear_all_cache(app: tauri::AppHandle) -> Result<CommandResponse<bool>, String> {
     let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    
+
     // 1. 清除 pwa_cache 目录
     let pwa_cache_dir = app_data_dir.join("pwa_cache");
     if pwa_cache_dir.exists() {
@@ -236,7 +235,7 @@ pub fn clear_all_cache(
         std::fs::remove_dir_all(&pwa_cache_dir).ok();
         std::fs::create_dir_all(&pwa_cache_dir).ok();
     }
-    
+
     // 2. 清除 WebView 缓存目录
     let webview_cache = app_data_dir.join("webview_cache");
     if webview_cache.exists() {
@@ -271,10 +270,12 @@ pub fn kv_get_all(
     let mut stmt = conn
         .prepare("SELECT key, value FROM kv_store WHERE app_id = ?")
         .map_err(|e| e.to_string())?;
-    
-    let rows = stmt.query_map([app_id], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    }).map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([app_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| e.to_string())?;
 
     let mut map = HashMap::new();
     for row in rows {
@@ -328,8 +329,11 @@ pub fn kv_remove(
     db: State<'_, DbConnection>,
 ) -> Result<CommandResponse<bool>, String> {
     let conn = db.inner().lock().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM kv_store WHERE app_id = ? AND key = ?", [app_id, key])
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM kv_store WHERE app_id = ? AND key = ?",
+        [app_id, key],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(CommandResponse::success(true))
 }
 
@@ -363,9 +367,9 @@ async fn fetch_manifest_info(
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .timeout(std::time::Duration::from_secs(10))
         .build()?;
-    
+
     let html = client.get(url).send().await?.text().await?;
-    
+
     // 1. 尝试从 HTML 中提取 Manifest 链接
     // <link rel="manifest" href="...">
     let manifest_url = regex::Regex::new(r#"<link\s+rel=["']manifest["']\s+href=["']([^"']+)["']"#)
@@ -382,11 +386,13 @@ async fn fetch_manifest_info(
         .map(|m| m.as_str().to_string());
 
     // 3. 尝试从 HTML 中提取图标 (作为备份)
-    let html_icon = regex::Regex::new(r#"<link\s+rel=["'](?:icon|shortcut icon|apple-touch-icon)["']\s+href=["']([^"']+)["']"#)
-        .unwrap()
-        .captures(&html)
-        .and_then(|cap| cap.get(1))
-        .map(|m| absolute_url(m.as_str(), url));
+    let html_icon = regex::Regex::new(
+        r#"<link\s+rel=["'](?:icon|shortcut icon|apple-touch-icon)["']\s+href=["']([^"']+)["']"#,
+    )
+    .unwrap()
+    .captures(&html)
+    .and_then(|cap| cap.get(1))
+    .map(|m| absolute_url(m.as_str(), url));
 
     let mut info = ManifestInfo {
         name: html_title,
@@ -408,15 +414,20 @@ async fn fetch_manifest_info(
                 if let Some(name) = m["name"].as_str().or(m["short_name"].as_str()) {
                     info.name = Some(name.to_string());
                 }
-                
+
                 // 解析图标：找最大的一个
                 if let Some(icons) = m["icons"].as_array() {
                     let mut best_icon: Option<(i32, String)> = None;
                     for icon in icons {
                         if let Some(src) = icon["src"].as_str() {
                             let sizes = icon["sizes"].as_str().unwrap_or("0x0");
-                            let width = sizes.split('x').next().unwrap_or("0").parse::<i32>().unwrap_or(0);
-                            
+                            let width = sizes
+                                .split('x')
+                                .next()
+                                .unwrap_or("0")
+                                .parse::<i32>()
+                                .unwrap_or(0);
+
                             if best_icon.is_none() || width > best_icon.as_ref().unwrap().0 {
                                 best_icon = Some((width, absolute_url(src, &m_url)));
                             }

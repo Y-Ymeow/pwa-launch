@@ -1,6 +1,6 @@
+use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::sync::Arc;
-use futures_util::{SinkExt, StreamExt};
 use tauri::State;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, RwLock};
@@ -69,8 +69,9 @@ async fn proxy_request(
     if let Some(proxy_settings) = proxy.as_ref() {
         if proxy_settings.enabled {
             let proxy_url = proxy_settings.get_proxy_url();
-            client_builder = client_builder
-                .proxy(reqwest::Proxy::all(&proxy_url).map_err(|e| format!("代理配置失败：{}", e))?);
+            client_builder = client_builder.proxy(
+                reqwest::Proxy::all(&proxy_url).map_err(|e| format!("代理配置失败：{}", e))?,
+            );
         }
     }
     drop(proxy);
@@ -91,7 +92,7 @@ async fn proxy_request(
     };
 
     let has_referer = headers.keys().any(|k| k.to_lowercase() == "referer");
-    
+
     for (key, value) in headers {
         if key.to_lowercase() != "cookie" {
             if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes()) {
@@ -101,7 +102,7 @@ async fn proxy_request(
             }
         }
     }
-    
+
     if !has_referer && !domain.is_empty() {
         req_builder = req_builder.header("Referer", format!("https://{}/", domain));
     }
@@ -181,11 +182,11 @@ async fn handle_ws_connection(
                                     let content_type = headers_out.get("content-type")
                                         .map(|s| s.to_lowercase())
                                         .unwrap_or_default();
-                                    
+
                                     let is_binary = content_type.starts_with("video/")
                                         || content_type.starts_with("audio/")
                                         || content_type.starts_with("application/octet-stream");
-                                    
+
                                     let data_str = if is_binary {
                                         use base64::Engine;
                                         base64::engine::general_purpose::STANDARD.encode(&data)
@@ -247,7 +248,7 @@ pub async fn start_ws_proxy(
     ws_proxy_state: State<'_, WsProxyState>,
 ) -> Result<CommandResponse<WsProxyStartResponse>, String> {
     let mut state = ws_proxy_state.write().await;
-    
+
     if let Some(handle) = state.as_ref() {
         return Ok(CommandResponse::success(WsProxyStartResponse {
             port: handle.port,
@@ -255,14 +256,16 @@ pub async fn start_ws_proxy(
         }));
     }
 
-    let listener = TcpListener::bind("127.0.0.1:0").await
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
         .map_err(|e| format!("绑定端口失败：{}", e))?;
-    
-    let addr = listener.local_addr()
+
+    let addr = listener
+        .local_addr()
         .map_err(|e| format!("获取地址失败：{}", e))?;
-    
+
     let port = addr.port();
-    
+
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
     let shutdown_tx_clone = shutdown_tx.clone();
     let cookie_store = cookie_store.inner().clone();
@@ -275,7 +278,7 @@ pub async fn start_ws_proxy(
 
     tokio::spawn(async move {
         let mut shutdown_rx = shutdown_tx.subscribe();
-        
+
         loop {
             tokio::select! {
                 result = listener.accept() => {
@@ -284,7 +287,7 @@ pub async fn start_ws_proxy(
                             let cookie_store = cookie_store.clone();
                             let proxy_config = proxy_config.clone();
                             let shutdown_rx = shutdown_tx.subscribe();
-                            
+
                             tokio::spawn(handle_ws_connection(
                                 stream,
                                 cookie_store,
@@ -317,7 +320,7 @@ pub async fn stop_ws_proxy(
     ws_proxy_state: State<'_, WsProxyState>,
 ) -> Result<CommandResponse<bool>, String> {
     let mut state = ws_proxy_state.write().await;
-    
+
     if let Some(handle) = state.take() {
         let _ = handle.shutdown_tx.send(());
         log::info!("WebSocket 代理已停止");

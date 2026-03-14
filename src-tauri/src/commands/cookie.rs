@@ -104,12 +104,12 @@ pub async fn set_proxy(
         username: username.clone(),
         password: password.clone(),
     };
-    
+
     // 更新全局配置
     let mut config = proxy_config.write().await;
     *config = Some(proxy_settings.clone());
     drop(config);
-    
+
     // 设置环境变量供 static_protocol 使用（同步上下文无法访问 State）
     if enabled {
         let proxy_url = proxy_settings.get_proxy_url();
@@ -119,7 +119,7 @@ pub async fn set_proxy(
         std::env::remove_var("PWA_PROXY_URL");
         log::info!("清除代理环境变量");
     }
-    
+
     log::info!("设置代理：{:?}", proxy_settings);
     Ok(CommandResponse::success(true))
 }
@@ -156,10 +156,12 @@ pub async fn sync_webview_cookies(
 ) -> Result<CommandResponse<bool>, String> {
     log::info!("同步 WebView Cookies for domain: {}", domain);
     log::info!("User-Agent: {:?}", user_agent);
-    
+
     let mut store = cookie_store.write().await;
     // 使用 "webview" 作为特殊的 app_id 来存储验证后的 cookies
-    let app_cookies = store.entry("webview".to_string()).or_insert_with(HashMap::new);
+    let app_cookies = store
+        .entry("webview".to_string())
+        .or_insert_with(HashMap::new);
     let domain_cookies = app_cookies
         .entry(domain.clone())
         .or_insert_with(HashMap::new);
@@ -176,6 +178,9 @@ pub async fn sync_webview_cookies(
         }
     }
 
-    log::info!("WebView Cookies 同步完成: {} 个 cookies", domain_cookies.len());
+    log::info!(
+        "WebView Cookies 同步完成: {} 个 cookies",
+        domain_cookies.len()
+    );
     Ok(CommandResponse::success(true))
 }

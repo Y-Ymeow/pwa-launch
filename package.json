@@ -7,12 +7,14 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:adapt": "node adapt/build.cjs",
+    "watch:adapt": "node adapt/build.cjs --watch"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.6.0",
-    "@tauri-apps/plugin-fs": "^2",
+    "@tauri-apps/plugin-fs": "~2",
     "@tauri-apps/plugin-http": "^2.5.7",
     "@tauri-apps/plugin-os": "~2",
     "@tauri-apps/plugin-shell": "^2",

@@ -5,9 +5,7 @@ use std::thread;
 use std::time::Duration;
 
 /// 处理 static 协议请求
-pub fn handle_static_request(
-    request: http::Request<Vec<u8>>,
-) -> http::Response<Vec<u8>> {
+pub fn handle_static_request(request: http::Request<Vec<u8>>) -> http::Response<Vec<u8>> {
     let path = request.uri().path();
 
     // URL 解码
@@ -26,8 +24,15 @@ pub fn handle_static_request(
     log::info!("[static] 请求: {}", file_path);
 
     // 如果是远程 URL (http:// 或 https://)，代理请求
-    if file_path.starts_with("http://") || file_path.starts_with("https://") {
-        return handle_remote_request(&file_path, &request);
+    // 处理可能的 localhost 前缀（如 static://localhost/https://example.com）
+    let actual_url = if file_path.starts_with("localhost/") {
+        &file_path[10..] // 去掉 "localhost/" 前缀
+    } else {
+        &file_path
+    };
+    
+    if actual_url.starts_with("http://") || actual_url.starts_with("https://") {
+        return handle_remote_request(actual_url, &request);
     }
 
     // 获取文件元数据
@@ -67,10 +72,7 @@ pub fn handle_static_request(
     };
 
     // 解析 Range 请求头
-    let range_header = request
-        .headers()
-        .get("Range")
-        .and_then(|v| v.to_str().ok());
+    let range_header = request.headers().get("Range").and_then(|v| v.to_str().ok());
 
     if let Some(range) = range_header {
         log::info!("[static] Range 请求: {}", range);
@@ -98,7 +100,10 @@ pub fn handle_static_request(
                                         .status(206)
                                         .header("Content-Type", mime_type)
                                         .header("Content-Length", length)
-                                        .header("Content-Range", format!("bytes {}-{}/{}", start, end, file_size))
+                                        .header(
+                                            "Content-Range",
+                                            format!("bytes {}-{}/{}", start, end, file_size),
+                                        )
                                         .header("Accept-Ranges", "bytes")
                                         .header("Access-Control-Allow-Origin", "*")
                                         .body(buffer)
@@ -135,17 +140,18 @@ pub fn handle_static_request(
 }
 
 /// 处理远程 HTTP 请求代理（带本地缓存）
-fn handle_remote_request(
-    url: &str,
-    request: &http::Request<Vec<u8>>,
-) -> http::Response<Vec<u8>> {
+fn handle_remote_request(url: &str, request: &http::Request<Vec<u8>>) -> http::Response<Vec<u8>> {
     log::info!("[static] 代理远程请求: {}", url);
 
     // 解析 URL 获取缓存路径
     let cache_file = get_cache_path(url);
     let cache_file_clone = cache_file.clone();
     let url_clone = url.to_string();
-    let range_header = request.headers().get("Range").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
+    let range_header = request
+        .headers()
+        .get("Range")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
 
     // 检查缓存是否存在（优先使用缓存，避免网络延迟）
     if cache_file.exists() && range_header.is_none() {
@@ -168,7 +174,7 @@ fn handle_remote_request(
     // 缓存不存在或有 Range 请求，从网络获取
     log::info!("[static] 从网络获取: {}", url);
     let (tx, rx) = mpsc::channel();
-    
+
     thread::spawn(move || {
         let result = fetch_and_cache(&url_clone, &cache_file_clone, range_header.as_deref());
         let _ = tx.send(result);
@@ -191,7 +197,7 @@ fn get_cache_path(url: &str) -> std::path::PathBuf {
     let parsed = url::Url::parse(url).unwrap();
     let domain = parsed.host_str().unwrap_or("unknown");
     let path = parsed.path();
-    
+
     dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("com.pwa-container.app")
@@ -201,11 +207,17 @@ fn get_cache_path(url: &str) -> std::path::PathBuf {
 }
 
 /// 从缓存读取并构建响应
-fn serve_from_cache(cache_file: &std::path::Path) -> Result<http::Response<Vec<u8>>, Box<dyn std::error::Error>> {
+fn serve_from_cache(
+    cache_file: &std::path::Path,
+) -> Result<http::Response<Vec<u8>>, Box<dyn std::error::Error>> {
     let content = std::fs::read(cache_file)?;
-    
+
     // 根据扩展名推断 MIME 类型
-    let ext = cache_file.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let ext = cache_file
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     let mime = match ext.as_str() {
         "jpg" | "jpeg" => "image/jpeg",
         "png" => "image/png",
@@ -215,7 +227,7 @@ fn serve_from_cache(cache_file: &std::path::Path) -> Result<http::Response<Vec<u
         "mp4" => "video/mp4",
         _ => "application/octet-stream",
     };
-    
+
     Ok(Response::builder()
         .header("Content-Type", mime)
         .header("Content-Length", content.len())
@@ -227,9 +239,13 @@ fn serve_from_cache(cache_file: &std::path::Path) -> Result<http::Response<Vec<u
 }
 
 /// 从网络获取并缓存
-fn fetch_and_cache(url: &str, cache_file: &std::path::Path, range: Option<&str>) -> http::Response<Vec<u8>> {
+fn fetch_and_cache(
+    url: &str,
+    cache_file: &std::path::Path,
+    range: Option<&str>,
+) -> http::Response<Vec<u8>> {
     let result = fetch_remote(url, range);
-    
+
     // 如果成功且有响应体，保存到缓存（Range 请求不缓存）
     if range.is_none() && result.status().is_success() {
         if let Some(parent) = cache_file.parent() {
@@ -237,9 +253,13 @@ fn fetch_and_cache(url: &str, cache_file: &std::path::Path, range: Option<&str>)
         }
         let body = result.body().clone();
         let _ = std::fs::write(cache_file, &body);
-        log::info!("[static] 已缓存: {} ({} bytes)", cache_file.display(), body.len());
+        log::info!(
+            "[static] 已缓存: {} ({} bytes)",
+            cache_file.display(),
+            body.len()
+        );
     }
-    
+
     result
 }
 
@@ -247,8 +267,8 @@ fn fetch_and_cache(url: &str, cache_file: &std::path::Path, range: Option<&str>)
 fn fetch_remote(url: &str, range: Option<&str>) -> http::Response<Vec<u8>> {
     // 创建 reqwest blocking client，支持 SOCKS5
     let mut client_builder = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(10))  // 10 秒超时
-        .connect_timeout(Duration::from_secs(5));  // 5 秒连接超时
+        .timeout(Duration::from_secs(10)) // 10 秒超时
+        .connect_timeout(Duration::from_secs(5)); // 5 秒连接超时
 
     // 检查是否有代理配置
     if let Ok(proxy_url) = std::env::var("PWA_PROXY_URL") {
@@ -279,7 +299,11 @@ fn fetch_remote(url: &str, range: Option<&str>) -> http::Response<Vec<u8>> {
 
     // 添加 Referer
     if let Ok(url_obj) = url.parse::<url::Url>() {
-        let referer = format!("{}://{}/", url_obj.scheme(), url_obj.host_str().unwrap_or(""));
+        let referer = format!(
+            "{}://{}/",
+            url_obj.scheme(),
+            url_obj.host_str().unwrap_or("")
+        );
         req_builder = req_builder.header("Referer", referer);
     }
 

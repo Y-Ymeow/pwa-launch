@@ -12,7 +12,6 @@ use tauri_plugin_http::init as http_plugin;
 use tauri_plugin_shell::init as shell_plugin;
 use tokio::sync::RwLock;
 
-
 pub fn run() {
     #[cfg(target_os = "linux")]
     {
@@ -25,15 +24,14 @@ pub fn run() {
     #[cfg(target_os = "android")]
     {
         android_logger::init_once(
-            android_logger::Config::default()
-                .with_max_level(log::LevelFilter::Debug),
+            android_logger::Config::default().with_max_level(log::LevelFilter::Debug),
         );
     }
 
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_fs::init());
     let host = Arc::new(Mutex::new(None::<String>));
     let host_clone = host.clone();
-    
+
     // 非 Android 平台使用 tauri_plugin_log
     #[cfg(not(target_os = "android"))]
     {
@@ -41,11 +39,13 @@ pub fn run() {
             tauri_plugin_log::Builder::new()
                 .clear_targets()
                 .level(log::LevelFilter::Info)
-                .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout))
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Stdout,
+                ))
                 .build(),
         );
     }
-    
+
     builder
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())

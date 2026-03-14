@@ -1,5 +1,5 @@
-use tauri::{AppHandle, Manager, WebviewWindow};
 use crate::models::CommandResponse;
+use tauri::{AppHandle, Manager, WebviewWindow};
 
 // 浏览器 UI 注入脚本 - 使用 Shadow DOM 隔离样式
 const BROWSER_UI_JS: &str = r#"
@@ -319,49 +319,48 @@ pub async fn navigate_to_url(
 ) -> Result<CommandResponse<bool>, String> {
     // 导航到目标 URL
     let nav_script = format!(r#"window.location.href = "{}";"#, url.replace("\"", "\\\""));
-    window.eval(nav_script)
+    window
+        .eval(nav_script)
         .map_err(|e| format!("导航失败: {:?}", e))?;
-    
+
     // 延迟注入 UI 脚本（等待页面开始加载）
     let window_clone = window.clone();
     let ui_script = INJECT_BROWSER_UI.to_string();
-    
+
     tokio::spawn(async move {
         // 等待页面加载
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-        
+
         // 注入 UI
         let _ = window_clone.eval(&ui_script);
-        
+
         // 再次注入（确保成功）
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         let _ = window_clone.eval(&ui_script);
     });
-    
+
     log::info!("[WebView] Navigate to: {}", url);
     Ok(CommandResponse::success(true))
 }
 
 /// 重新注入浏览器 UI（用于页面跳转后）
 #[tauri::command]
-pub async fn reinject_browser_ui(
-    window: WebviewWindow,
-) -> Result<CommandResponse<bool>, String> {
-    window.eval(INJECT_BROWSER_UI)
+pub async fn reinject_browser_ui(window: WebviewWindow) -> Result<CommandResponse<bool>, String> {
+    window
+        .eval(INJECT_BROWSER_UI)
         .map_err(|e| format!("注入失败: {:?}", e))?;
-    
+
     log::info!("[WebView] Browser UI reinjected");
     Ok(CommandResponse::success(true))
 }
 
 /// 检查浏览器 UI 是否存在
 #[tauri::command]
-pub async fn check_browser_ui(
-    window: WebviewWindow,
-) -> Result<CommandResponse<bool>, String> {
-    let _result = window.eval(r#"!!document.getElementById('__browser_ui_host__')"#)
+pub async fn check_browser_ui(window: WebviewWindow) -> Result<CommandResponse<bool>, String> {
+    let _result = window
+        .eval(r#"!!document.getElementById('__browser_ui_host__')"#)
         .map_err(|e| format!("检查失败: {:?}", e))?;
-    
+
     // eval 返回的是 ()，我们需要再次查询
     let has_ui = true; // 简化处理，前端会处理重试
     Ok(CommandResponse::success(has_ui))
@@ -369,14 +368,13 @@ pub async fn check_browser_ui(
 
 /// 返回上一页
 #[tauri::command]
-pub async fn navigate_back(
-    window: WebviewWindow,
-) -> Result<CommandResponse<bool>, String> {
+pub async fn navigate_back(window: WebviewWindow) -> Result<CommandResponse<bool>, String> {
     let script = r#"window.__TAURI_GO_BACK__ && window.__TAURI_GO_BACK__();"#.to_string();
-    
-    window.eval(script)
+
+    window
+        .eval(script)
         .map_err(|e| format!("返回失败: {:?}", e))?;
-    
+
     log::info!("[WebView] Navigate back");
     Ok(CommandResponse::success(true))
 }
@@ -386,11 +384,8 @@ pub async fn navigate_back(
 pub async fn get_webview_info(
     app: AppHandle,
 ) -> Result<CommandResponse<serde_json::Value>, String> {
-    let windows: Vec<String> = app.webview_windows()
-        .keys()
-        .cloned()
-        .collect();
-    
+    let windows: Vec<String> = app.webview_windows().keys().cloned().collect();
+
     Ok(CommandResponse::success(serde_json::json!({
         "windows": windows,
     })))
@@ -398,12 +393,10 @@ pub async fn get_webview_info(
 
 /// 执行 JavaScript（用于前端直接执行）
 #[tauri::command]
-pub async fn eval_js(
-    window: WebviewWindow,
-    script: String,
-) -> Result<CommandResponse<()>, String> {
-    window.eval(&script)
+pub async fn eval_js(window: WebviewWindow, script: String) -> Result<CommandResponse<()>, String> {
+    window
+        .eval(&script)
         .map_err(|e| format!("执行失败: {:?}", e))?;
-    
+
     Ok(CommandResponse::success(()))
 }

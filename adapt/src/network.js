@@ -2,7 +2,7 @@
  * Network APIs (fetch/XHR proxy)
  */
 
-import { originalFetch, OriginalXHR } from './core.js';
+import { originalFetch, OriginalXHR } from "./core.js";
 
 export function createNetwork(bridge) {
   return {
@@ -44,7 +44,11 @@ export function createNetwork(bridge) {
         let body = responseData.body;
         const respType = options.responseType || "text";
 
-        if (responseData.is_base64 || respType === "arraybuffer" || respType === "blob") {
+        if (
+          responseData.is_base64 ||
+          respType === "arraybuffer" ||
+          respType === "blob"
+        ) {
           const byteCharacters = atob(body);
           const byteArray = new Uint8Array(byteCharacters.length);
           for (let i = 0; i < byteCharacters.length; i++) {
@@ -55,7 +59,9 @@ export function createNetwork(bridge) {
             body = byteArray.buffer;
           } else {
             body = new Blob([byteArray], {
-              type: responseData.headers["content-type"] || "application/octet-stream",
+              type:
+                responseData.headers["content-type"] ||
+                "application/octet-stream",
             });
           }
         }
@@ -156,11 +162,26 @@ export function setupXHRProxy(tauriBridge) {
               }
             }
 
-            Object.defineProperty(xhr, "status", { value: responseData.status, writable: false });
-            Object.defineProperty(xhr, "statusText", { value: responseData.status === 200 ? "OK" : "", writable: false });
-            Object.defineProperty(xhr, "responseText", { value: responseData.body, writable: false });
-            Object.defineProperty(xhr, "response", { value: responseValue, writable: false });
-            Object.defineProperty(xhr, "readyState", { value: 4, writable: false });
+            Object.defineProperty(xhr, "status", {
+              value: responseData.status,
+              writable: false,
+            });
+            Object.defineProperty(xhr, "statusText", {
+              value: responseData.status === 200 ? "OK" : "",
+              writable: false,
+            });
+            Object.defineProperty(xhr, "responseText", {
+              value: responseData.body,
+              writable: false,
+            });
+            Object.defineProperty(xhr, "response", {
+              value: responseValue,
+              writable: false,
+            });
+            Object.defineProperty(xhr, "readyState", {
+              value: 4,
+              writable: false,
+            });
 
             if (xhr.onreadystatechange) xhr.onreadystatechange();
             if (xhr.onload) xhr.onload();
@@ -168,8 +189,14 @@ export function setupXHRProxy(tauriBridge) {
 
             return;
           } catch (err) {
-            Object.defineProperty(xhr, "status", { value: 500, writable: false });
-            Object.defineProperty(xhr, "readyState", { value: 4, writable: false });
+            Object.defineProperty(xhr, "status", {
+              value: 500,
+              writable: false,
+            });
+            Object.defineProperty(xhr, "readyState", {
+              value: 4,
+              writable: false,
+            });
             if (xhr.onerror) xhr.onerror(err);
             if (xhr.onloadend) xhr.onloadend();
             return;
@@ -189,14 +216,23 @@ export function setupXHRProxy(tauriBridge) {
 
 export function setupImageProxy(tauriBridge) {
   function proxyImage(img) {
-    const src = img.src;
+    const src = img.getAttribute('src') || img.src;
     if (!src || img.dataset.proxied) return;
 
+    console.log('[PWA Adapt] Image src:', src);
+    
+    // 跳过 blob 和 data URL
+    if (src.startsWith("blob:") || src.startsWith("data:")) return;
+    
+    // 跳过已经代理的
+    if (src.startsWith("static://") || src.startsWith("http://static.localhost")) return;
+    
     try {
       const url = new URL(src, window.location.href);
-      if (url.origin === window.location.origin) return;
-      if (src.startsWith("blob:") || src.startsWith("data:")) return;
+      // 跳过同源的
+      if (url.origin === window.location.origin && !src.startsWith('http')) return;
     } catch (e) {
+      // URL 解析失败，可能是相对路径，不处理
       return;
     }
 
@@ -204,6 +240,7 @@ export function setupImageProxy(tauriBridge) {
     img.dataset.originalSrc = src;
 
     const staticUrl = `${tauriBridge.staticBaseUrl}/${src}`;
+    console.log('[PWA Adapt] Proxy image:', src, '->', staticUrl);
     img.src = staticUrl;
   }
 
@@ -225,3 +262,4 @@ export function setupImageProxy(tauriBridge) {
     observer.observe(document.body, { childList: true, subtree: true });
   }
 }
+

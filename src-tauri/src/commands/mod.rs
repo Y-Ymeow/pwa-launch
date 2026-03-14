@@ -43,7 +43,7 @@ impl ProxySettings {
             ProxyType::Https => "https",
             ProxyType::Socks5 => "socks5",
         };
-        
+
         if let (Some(user), Some(pass)) = (&self.username, &self.password) {
             format!("{}://{}:{}@{}:{}", scheme, user, pass, self.host, self.port)
         } else {

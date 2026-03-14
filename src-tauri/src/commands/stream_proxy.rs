@@ -1,10 +1,10 @@
+use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::State;
-use tokio::sync::RwLock;
-use futures_util::{SinkExt, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio_tungstenite::{connect_async, accept_async, tungstenite::Message};
+use tokio::sync::RwLock;
+use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
 
 use super::CommandResponse;
 
@@ -90,14 +90,14 @@ async fn handle_http_proxy(
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let mut buf = [0u8; 8192];
-    
+
     let n = match client_stream.read(&mut buf).await {
         Ok(n) if n > 0 => n,
         _ => return,
     };
-    
+
     let request = String::from_utf8_lossy(&buf[..n]).to_string();
-    
+
     let target = match url::Url::parse(&target_url) {
         Ok(u) => u,
         Err(e) => {
@@ -105,10 +105,10 @@ async fn handle_http_proxy(
             return;
         }
     };
-    
+
     let host = target.host_str().unwrap_or("127.0.0.1");
     let port = target.port().unwrap_or(80);
-    
+
     let mut target_stream = match TcpStream::connect(format!("{}:{}", host, port)).await {
         Ok(s) => s,
         Err(e) => {
@@ -116,12 +116,12 @@ async fn handle_http_proxy(
             return;
         }
     };
-    
+
     if let Err(e) = target_stream.write_all(request.as_bytes()).await {
         log::error!("Failed to forward request: {}", e);
         return;
     }
-    
+
     loop {
         tokio::select! {
             result = target_stream.read(&mut buf) => {
@@ -149,10 +149,10 @@ pub async fn start_stream_proxy(
     stream_proxy_state: State<'_, StreamProxyState>,
 ) -> Result<CommandResponse<StreamProxyStartResponse>, String> {
     let target_url = request.target_url.clone();
-    
+
     if target_url.starts_with("ws://") || target_url.starts_with("wss://") {
         let mut state = stream_proxy_state.write().await;
-        
+
         for (_id, handle) in state.iter() {
             if handle.target_url == target_url {
                 return Ok(CommandResponse::success(StreamProxyStartResponse {
@@ -161,23 +161,25 @@ pub async fn start_stream_proxy(
                 }));
             }
         }
-        
-        let listener = TcpListener::bind("127.0.0.1:0").await
+
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
             .map_err(|e| format!("绑定端口失败：{}", e))?;
-        
-        let addr = listener.local_addr()
+
+        let addr = listener
+            .local_addr()
             .map_err(|e| format!("获取地址失败：{}", e))?;
-        
+
         let port = addr.port();
-        
+
         let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
         let shutdown_tx_clone = shutdown_tx.clone();
-        
+
         let target_clone = target_url.clone();
-        
+
         tokio::spawn(async move {
             let mut shutdown_rx = shutdown_tx_clone.subscribe();
-            
+
             loop {
                 tokio::select! {
                     result = listener.accept() => {
@@ -185,7 +187,7 @@ pub async fn start_stream_proxy(
                             Ok((client_stream, _)) => {
                                 let target = target_clone.clone();
                                 let shutdown_rx_inner = shutdown_tx_clone.subscribe();
-                                
+
                                 tokio::spawn(async move {
                                     let client_ws = match accept_async(client_stream).await {
                                         Ok(w) => w,
@@ -194,7 +196,7 @@ pub async fn start_stream_proxy(
                                             return;
                                         }
                                     };
-                                    
+
                                     let (target_ws, _) = match connect_async(&target).await {
                                         Ok(w) => w,
                                         Err(e) => {
@@ -202,7 +204,7 @@ pub async fn start_stream_proxy(
                                             return;
                                         }
                                     };
-                                    
+
                                     proxy_websocket_stream(target_ws, client_ws, shutdown_rx_inner).await;
                                 });
                             }
@@ -217,39 +219,48 @@ pub async fn start_stream_proxy(
                 }
             }
         });
-        
+
         let id = uuid::Uuid::new_v4().to_string();
-        state.insert(id, StreamProxyHandle {
-            local_port: port,
-            target_url: target_url.clone(),
-            shutdown_tx,
-        });
-        
-        log::info!("WebSocket 代理启动：{} -> ws://127.0.0.1:{}", target_url, port);
-        
+        state.insert(
+            id,
+            StreamProxyHandle {
+                local_port: port,
+                target_url: target_url.clone(),
+                shutdown_tx,
+            },
+        );
+
+        log::info!(
+            "WebSocket 代理启动：{} -> ws://127.0.0.1:{}",
+            target_url,
+            port
+        );
+
         return Ok(CommandResponse::success(StreamProxyStartResponse {
             local_port: port,
             proxy_url: format!("ws://127.0.0.1:{}", port),
         }));
     }
-    
+
     let mut state = stream_proxy_state.write().await;
-    
-    let listener = TcpListener::bind("127.0.0.1:0").await
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
         .map_err(|e| format!("绑定端口失败：{}", e))?;
-    
-    let addr = listener.local_addr()
+
+    let addr = listener
+        .local_addr()
         .map_err(|e| format!("获取地址失败：{}", e))?;
-    
+
     let port = addr.port();
     let target = target_url.clone();
-    
+
     let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
     let shutdown_tx_clone = shutdown_tx.clone();
-    
+
     tokio::spawn(async move {
         let mut shutdown_rx = shutdown_tx_clone.subscribe();
-        
+
         loop {
             tokio::select! {
                 result = listener.accept() => {
@@ -257,7 +268,7 @@ pub async fn start_stream_proxy(
                         Ok((client_stream, _)) => {
                             let target_owned = target.clone();
                             let shutdown_rx = shutdown_tx_clone.subscribe();
-                            
+
                             tokio::spawn(handle_http_proxy(client_stream, target_owned, shutdown_rx));
                         }
                         Err(e) => {
@@ -271,16 +282,19 @@ pub async fn start_stream_proxy(
             }
         }
     });
-    
+
     let id = uuid::Uuid::new_v4().to_string();
-    state.insert(id, StreamProxyHandle {
-        local_port: port,
-        target_url: target_url.clone(),
-        shutdown_tx,
-    });
-    
+    state.insert(
+        id,
+        StreamProxyHandle {
+            local_port: port,
+            target_url: target_url.clone(),
+            shutdown_tx,
+        },
+    );
+
     log::info!("HTTP 代理启动：{} -> http://127.0.0.1:{}", target_url, port);
-    
+
     Ok(CommandResponse::success(StreamProxyStartResponse {
         local_port: port,
         proxy_url: format!("http://127.0.0.1:{}", port),
@@ -293,12 +307,12 @@ pub async fn stop_stream_proxy(
     stream_proxy_state: State<'_, StreamProxyState>,
 ) -> Result<CommandResponse<bool>, String> {
     let mut state = stream_proxy_state.write().await;
-    
+
     if let Some(handle) = state.remove(&id) {
         let _ = handle.shutdown_tx.send(());
         log::info!("流代理已停止: {}", handle.target_url);
     }
-    
+
     Ok(CommandResponse::success(true))
 }
 
@@ -307,8 +321,9 @@ pub async fn list_stream_proxies(
     stream_proxy_state: State<'_, StreamProxyState>,
 ) -> Result<CommandResponse<Vec<serde_json::Value>>, String> {
     let state = stream_proxy_state.read().await;
-    
-    let proxies: Vec<serde_json::Value> = state.iter()
+
+    let proxies: Vec<serde_json::Value> = state
+        .iter()
         .map(|(id, handle)| {
             serde_json::json!({
                 "id": id,
@@ -318,6 +333,6 @@ pub async fn list_stream_proxies(
             })
         })
         .collect();
-    
+
     Ok(CommandResponse::success(proxies))
 }
