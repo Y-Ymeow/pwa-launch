@@ -76,6 +76,7 @@
     "allow-reinject-browser-ui",
     "allow-check-browser-ui",
     "allow-eval-js",
+    "allow-get-local-server-port",
     "os:default",
     "log:default",
     "dialog:default",

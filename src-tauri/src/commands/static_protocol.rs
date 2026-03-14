@@ -134,24 +134,46 @@ pub fn handle_static_request(
     }
 }
 
-/// 处理远程 HTTP 请求代理（在单独线程中执行，避免阻塞主线程）
+/// 处理远程 HTTP 请求代理（带本地缓存）
 fn handle_remote_request(
     url: &str,
     request: &http::Request<Vec<u8>>,
 ) -> http::Response<Vec<u8>> {
     log::info!("[static] 代理远程请求: {}", url);
 
-    // 在线程中执行请求，避免阻塞主线程
-    let (tx, rx) = mpsc::channel();
-    let url = url.to_string();
+    // 解析 URL 获取缓存路径
+    let cache_file = get_cache_path(url);
+    let cache_file_clone = cache_file.clone();
+    let url_clone = url.to_string();
     let range_header = request.headers().get("Range").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
+
+    // 检查缓存是否存在（优先使用缓存，避免网络延迟）
+    if cache_file.exists() && range_header.is_none() {
+        log::info!("[static] 使用缓存: {}", cache_file.display());
+        match serve_from_cache(&cache_file) {
+            Ok(response) => {
+                // 后台异步更新缓存
+                thread::spawn(move || {
+                    let _ = fetch_and_cache(&url_clone, &cache_file_clone, None);
+                });
+                return response;
+            }
+            Err(e) => {
+                log::warn!("[static] 缓存读取失败: {}, 重新获取", e);
+                let _ = std::fs::remove_file(&cache_file);
+            }
+        }
+    }
+
+    // 缓存不存在或有 Range 请求，从网络获取
+    log::info!("[static] 从网络获取: {}", url);
+    let (tx, rx) = mpsc::channel();
     
     thread::spawn(move || {
-        let result = fetch_remote(&url, range_header.as_deref());
+        let result = fetch_and_cache(&url_clone, &cache_file_clone, range_header.as_deref());
         let _ = tx.send(result);
     });
 
-    // 等待结果，最多 15 秒
     match rx.recv_timeout(Duration::from_secs(15)) {
         Ok(response) => response,
         Err(_) => {
@@ -162,6 +184,63 @@ fn handle_remote_request(
                 .unwrap()
         }
     }
+}
+
+/// 获取缓存路径
+fn get_cache_path(url: &str) -> std::path::PathBuf {
+    let parsed = url::Url::parse(url).unwrap();
+    let domain = parsed.host_str().unwrap_or("unknown");
+    let path = parsed.path();
+    
+    dirs::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("com.pwa-container.app")
+        .join("static_cache")
+        .join(domain)
+        .join(path.trim_start_matches('/'))
+}
+
+/// 从缓存读取并构建响应
+fn serve_from_cache(cache_file: &std::path::Path) -> Result<http::Response<Vec<u8>>, Box<dyn std::error::Error>> {
+    let content = std::fs::read(cache_file)?;
+    
+    // 根据扩展名推断 MIME 类型
+    let ext = cache_file.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let mime = match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "mp3" => "audio/mpeg",
+        "mp4" => "video/mp4",
+        _ => "application/octet-stream",
+    };
+    
+    Ok(Response::builder()
+        .header("Content-Type", mime)
+        .header("Content-Length", content.len())
+        .header("Accept-Ranges", "bytes")
+        .header("Access-Control-Allow-Origin", "*")
+        .header("X-Cache", "HIT")
+        .body(content)
+        .unwrap())
+}
+
+/// 从网络获取并缓存
+fn fetch_and_cache(url: &str, cache_file: &std::path::Path, range: Option<&str>) -> http::Response<Vec<u8>> {
+    let result = fetch_remote(url, range);
+    
+    // 如果成功且有响应体，保存到缓存（Range 请求不缓存）
+    if range.is_none() && result.status().is_success() {
+        if let Some(parent) = cache_file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let body = result.body().clone();
+        let _ = std::fs::write(cache_file, &body);
+        log::info!("[static] 已缓存: {} ({} bytes)", cache_file.display(), body.len());
+    }
+    
+    result
 }
 
 /// 在线程中执行远程请求

@@ -56,6 +56,7 @@ pub fn run() {
             commands::static_protocol::handle_static_request(request)
         })
         .register_uri_scheme_protocol("pwa-resource", |ctx, request| {
+            log::info!("[PWAResource] Handling request: {}", request.uri());
                 match commands::pwa_resource_protocol::handle_resource_request(ctx.app_handle(), request) {
                     Ok(res) => res,
                     Err(e) => {
@@ -183,6 +184,7 @@ pub fn run() {
             commands::reinject_browser_ui,
             commands::check_browser_ui,
             commands::eval_js,
+            commands::get_local_server_port,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

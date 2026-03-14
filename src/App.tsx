@@ -97,7 +97,7 @@ function App() {
   // 获取应用图标
   const getAppIcon = (appId: string) => apps.find((a) => a.id === appId)?.icon_url;
 
-  // URL 代理转换
+  // URL 代理转换 - 使用本地 HTTP 服务器 (固定端口 8765)
   const getProxiedUrl = (url: string) => {
     if (!url || !url.startsWith("http")) return url;
 
@@ -106,15 +106,19 @@ function App() {
       const protocol = parsed.protocol.replace(":", "");
       const domain = parsed.hostname;
       const port = parsed.port ? `.port-${parsed.port}` : "";
-      let path = parsed.pathname + parsed.search + parsed.hash;
-
-      const isAndroid = /android/i.test(navigator.userAgent);
-
-      if (isAndroid) {
-        return `http://pwa-resource.localhost/${protocol}/${domain}${port}${path}`;
-      } else {
-        return `pwa-resource://localhost/${protocol}/${domain}${port}${path}`;
+      let path = parsed.pathname;
+      
+      // 确保路径以 / 结尾，这样 WebView 才能正确解析相对路径
+      // 如果路径为空或者是文件名（有扩展名），不添加斜杠
+      // 否则添加斜杠，例如: /musicplayer-pwa -> /musicplayer-pwa/
+      if (path && !path.endsWith('/') && !path.split('/').pop()?.includes('.')) {
+        path = path + '/';
       }
+      
+      path = path + parsed.search + parsed.hash;
+
+      // 使用本地 HTTP 服务器: http://localhost:8765/pwa/protocol/domain/path
+      return `http://localhost:8765/pwa/${protocol}/${domain}${port}${path}`;
     } catch (e) {
       return url;
     }

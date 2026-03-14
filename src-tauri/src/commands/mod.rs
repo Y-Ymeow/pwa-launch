@@ -86,3 +86,12 @@ fn extract_domain(url: &str) -> String {
         url.to_string()
     }
 }
+
+/// 获取本地服务器端口号
+#[tauri::command]
+pub fn get_local_server_port() -> CommandResponse<u16> {
+    match crate::local_server::get_server_port() {
+        Some(port) => CommandResponse::success(port),
+        None => CommandResponse::error("Local server not initialized".to_string()),
+    }
+}

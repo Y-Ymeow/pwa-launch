@@ -1,11 +1,8 @@
 use tauri::http::{Request, Response};
 use std::path::{PathBuf, Path};
 use std::fs;
-use std::sync::Mutex;
-use std::collections::HashMap;
 use tauri::Manager;
 use url::Url;
-use once_cell::sync::Lazy;
 
 // 缓存白名单
 const CACHE_WHITELIST: &[&str] = &[
@@ -13,10 +10,6 @@ const CACHE_WHITELIST: &[&str] = &[
     "json", "webmanifest",
     "woff", "woff2", "ttf", "otf", "svg", "map"
 ];
-
-// 全局路径映射表: 将路径的第一级目录映射到对应的域名上下文
-// 例如: "manga-reader-pwa" -> "https/y-ymeow.github.io"
-static PATH_CONTEXT_MAP: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 pub fn handle_resource_request(
     app: &tauri::AppHandle,
@@ -26,6 +19,7 @@ pub fn handle_resource_request(
     let headers = request.headers();
     let url_obj = Url::parse(&uri)?;
     let uri_path = url_obj.path();
+    log::info!("[PWAResource] Raw URI: {}, path: {}", uri, uri_path);
     
     // 0. 检测本地开发地址，直接代理而不走缓存逻辑
     let is_local_dev = uri_path.contains("localhost") 
@@ -34,7 +28,6 @@ pub fn handle_resource_request(
         || uri_path.contains("10.0.");
     
     if is_local_dev {
-        // 提取原始 URL
         let original_url = if let Some(pos) = uri.find("/http/") {
             let path_part = &uri[pos + 6..];
             let real_path = path_part.replace(".port-", ":");
@@ -49,7 +42,6 @@ pub fn handle_resource_request(
         
         log::info!("[PWAResource] Local dev mode, direct proxy: {}", original_url);
         
-        // 直接代理，不走缓存
         let client = reqwest::blocking::Client::builder()
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .timeout(std::time::Duration::from_secs(30))
@@ -83,99 +75,53 @@ pub fn handle_resource_request(
         return Ok(response_builder.body(content)?);
     }
     
-    // 1. 提取或恢复上下文 (protocol/domain)
-    let context = if let Some(pos) = uri.find("/https/") {
-        let after = &uri[pos + 7..];
-        let parts: Vec<&str> = after.split('/').collect();
-        let domain = parts[0];
-        let ctx = format!("https/{}", domain);
-        
-        // 自动学习：如果路径中有超过一级的目录，记录该目录与域名的关系
-        if parts.len() > 1 && !parts[1].is_empty() && !parts[1].contains('.') {
-            let mut map = PATH_CONTEXT_MAP.lock().unwrap();
-            map.insert(parts[1].to_string(), ctx.clone());
-        }
-        Some(ctx)
-    } else if let Some(pos) = uri.find("/http/") {
-        let after = &uri[pos + 6..];
-        let parts: Vec<&str> = after.split('/').collect();
-        let domain = parts[0];
-        let ctx = format!("http/{}", domain);
-        if parts.len() > 1 && !parts[1].is_empty() && !parts[1].contains('.') {
-            let mut map = PATH_CONTEXT_MAP.lock().unwrap();
-            map.insert(parts[1].to_string(), ctx.clone());
-        }
-        Some(ctx)
-    } else {
-        // 绝对路径请求，尝试回溯
-        let first_seg = uri_path.split('/').filter(|s| !s.is_empty()).next().unwrap_or("");
-        let mut ctx = PATH_CONTEXT_MAP.lock().unwrap().get(first_seg).cloned();
-        
-        // Cookie 兜底
-        if ctx.is_none() {
-            ctx = headers.get("cookie")
-                .and_then(|c| c.to_str().ok())
-                .and_then(|s| s.split(';').find(|p| p.trim().starts_with("pwa_context=")))
-                .map(|p| p.trim()["pwa_context=".len()..].to_string());
-        }
-        
-        // Referer 兜底
-        if ctx.is_none() {
-            ctx = headers.get("referer").and_then(|r| r.to_str().ok()).and_then(|r| {
-                if let Some(pos) = r.find("/https/") {
-                    Some(format!("https/{}", r[pos + 7..].split('/').next().unwrap_or("")))
-                } else if let Some(pos) = r.find("/http/") {
-                    Some(format!("http/{}", r[pos + 6..].split('/').next().unwrap_or("")))
-                } else { None }
-            });
-        }
-        ctx
-    };
-
-    let ctx_str = match context {
-        Some(c) => c,
-        None => {
-            log::warn!("[PWAResource] Context lost for URI: {}", uri);
-            return Ok(Response::builder().status(404).body("Missing Context".into())?);
-        }
-    };
-
-    // 2. 还原原始 URL
-    let (proto, domain_raw) = ctx_str.split_once('/').unwrap_or((&ctx_str, ""));
-    let real_domain = domain_raw.replace(".port-", ":");
+    // 1. 解析请求
+    // 情况A: /https/y-ymeow.github.io/musicplayer-pwa/index.html
+    // 情况B: /assets/xxx.js (相对路径请求，需要从Referer恢复)
     
-    // 清理请求路径：如果是带上下文标记的路径，去掉标记部分
-    let marker = format!("/{}", ctx_str);
-    let final_path = if uri_path.starts_with(&marker) {
-        &uri_path[marker.len()..]
-    } else {
-        uri_path
-    };
+    let (proto, domain, file_path, ctx_str) = 
+        if let Some(pos) = uri_path.find("/https/") {
+            // 直接请求，提取完整路径
+            let after = &uri_path[pos + 7..]; // y-ymeow.github.io/musicplayer-pwa/index.html
+            // show uri path in log
+            log::info!("[PWAResource] URI Path: {}", after);
+            parse_path("https", after, uri_path)
+        } else if let Some(pos) = uri_path.find("/http/") {
+            let after = &uri_path[pos + 6..];
+            parse_path("http", after, uri_path)
+        } else {
+            // 相对路径请求如 /assets/xxx.js，从 Referer 恢复
+            resolve_relative_path(uri_path, headers, &uri)?
+        };
     
+    log::info!("[PWAResource] Parsed: proto={}, domain={}, path='{}'", proto, domain, file_path);
+
+    // 2. 构建原始 URL
     let query = url_obj.query().map(|q| format!("?{}", q)).unwrap_or_default();
-    let original_url = format!("{}://{}{}{}", proto, real_domain, final_path, query);
-
+    let original_url = format!("{}://{}{}{}", proto, domain, file_path, query);
     log::info!("[PWAResource] Proxy: {} -> {}", uri, original_url);
 
     // 3. 缓存处理
-    let domain_name = real_domain.split(':').next().unwrap_or("unknown");
-    let ext = Path::new(final_path).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let domain_name: &str = domain.split(':').next().unwrap_or("unknown");
+    let ext = Path::new(&file_path).extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     let should_cache = CACHE_WHITELIST.contains(&ext.as_str());
 
     let app_data_dir = app.path().app_data_dir()?;
-    let cache_dir = app_data_dir.join("pwa_cache").join(domain_name);
-    let local_file_path = if final_path == "/" || final_path.is_empty() || final_path.ends_with('/') {
+    let cache_dir = app_data_dir.join("pwa_cache").join(&domain_name);
+    let local_file_path = if file_path == "/" || file_path.is_empty() {
         cache_dir.join("index.html")
     } else {
-        cache_dir.join(final_path.trim_start_matches('/'))
+        cache_dir.join(file_path.trim_start_matches('/'))
     };
 
-    // 4. 加载资源 - 优先从网络获取，失败时使用缓存
+    // 4. 加载资源
     let (content, remote_mime, status) = 
-        match fetch_from_network(&original_url, should_cache, &local_file_path) {
+        match fetch_from_network(&original_url, should_cache, &local_file_path, proto, &domain, &file_path) {
             Ok((c, m, s)) if s == 200 => (c, m, s),
             Ok((c, m, s)) => {
-                // 网络返回非 200，尝试使用缓存
                 if should_cache && local_file_path.exists() {
                     log::warn!("[PWAResource] Network returned {}, trying cache", s);
                     match fs::read(&local_file_path) {
@@ -187,7 +133,6 @@ pub fn handle_resource_request(
                 }
             }
             Err(e) => {
-                // 网络请求失败，使用缓存
                 if should_cache && local_file_path.exists() {
                     log::warn!("[PWAResource] Network error: {}, using cache", e);
                     match fs::read(&local_file_path) {
@@ -200,7 +145,7 @@ pub fn handle_resource_request(
             }
         };
 
-    // 5. 响应并注入 Cookie 保持上下文
+    // 5. 响应
     let mut response = build_response(&local_file_path, content, remote_mime, status)?;
     response.headers_mut().insert(
         "Set-Cookie",
@@ -209,7 +154,93 @@ pub fn handle_resource_request(
     Ok(response)
 }
 
-fn fetch_from_network(url: &str, should_cache: bool, cache_path: &PathBuf) -> Result<(Vec<u8>, Option<String>, u16), Box<dyn std::error::Error>> {
+// 解析直接请求的路径
+fn parse_path<'a>(proto: &'a str, after_proto: &str, _uri_path: &str) -> (&'a str, String, String, String) {
+    // after_proto: y-ymeow.github.io/musicplayer-pwa/index.html
+    let parts: Vec<&str> = after_proto.splitn(2, '/').collect();
+    // show parts in log
+    log::info!("[PWAResource] After Proto: {}", parts[0]);
+    log::info!("[PWAResource] After Proto: {}", parts[1]);
+    let domain = parts[0].to_string();
+    
+    let file_path = if parts.len() > 1 {
+        format!("/{}", parts[1])
+    } else {
+        "/".to_string()
+    };
+
+    log::info!("[PWAResource] Parsed: proto={}, domain={}, path='{}'", proto, domain, file_path);
+    
+    let ctx_str = format!("{}/{}", proto, domain);
+    (proto, domain, file_path, ctx_str)
+}
+
+// 解析相对路径请求
+fn resolve_relative_path(
+    uri_path: &str,
+    headers: &tauri::http::HeaderMap,
+    _uri: &str
+) -> Result<(&'static str, String, String, String), Box<dyn std::error::Error>> {
+    // 从 Referer 获取基础路径
+    // Referer: pwa-resource://localhost/https/y-ymeow.github.io/musicplayer-pwa/index.html
+    // show headers in log
+    println!("[PWAResource] Headers: {:?}", headers);
+    let referer = headers.get("referer")
+        .and_then(|r| r.to_str().ok())
+        .ok_or("Missing referer for relative path")?;
+    
+    log::info!("[PWAResource] Resolving relative path '{}' from referer: {}", uri_path, referer);
+    
+    // 提取 referer 中的协议、域名和基础路径
+    let (proto, after_proto) = if let Some(pos) = referer.find("/https/") {
+        ("https", &referer[pos + 7..])
+    } else if let Some(pos) = referer.find("/http/") {
+        ("http", &referer[pos + 6..])
+    } else {
+        return Err("Invalid referer format".into());
+    };
+    
+    // after_proto: y-ymeow.github.io/musicplayer-pwa/index.html
+    let parts: Vec<&str> = after_proto.splitn(2, '/').collect();
+    let domain = parts[0].to_string();
+    
+    // 提取基础路径（去掉文件名）
+    let base_path = if parts.len() > 1 {
+        let path_part = parts[1];
+        // 找到最后一个 / 之前的部分
+        if let Some(last_slash) = path_part.rfind('/') {
+            format!("/{}/", &path_part[..last_slash])
+        } else {
+            "/".to_string()
+        }
+    } else {
+        "/".to_string()
+    };
+    
+    // 组合完整路径: base_path + uri_path
+    // base_path: /musicplayer-pwa/
+    // uri_path: /assets/xxx.js
+    // result: /musicplayer-pwa/assets/xxx.js
+    let file_path = if uri_path.starts_with('/') {
+        format!("{}{}", base_path.trim_end_matches('/'), uri_path)
+    } else {
+        format!("{}/{}", base_path.trim_end_matches('/'), uri_path)
+    };
+    
+    let ctx_str = format!("{}/{}", proto, domain);
+    log::info!("[PWAResource] Resolved: base='{}', file='{}'", base_path, file_path);
+    
+    Ok((proto, domain, file_path, ctx_str))
+}
+
+fn fetch_from_network(
+    url: &str, 
+    should_cache: bool, 
+    cache_path: &PathBuf,
+    proto: &str,
+    domain: &str,
+    file_path: &str
+) -> Result<(Vec<u8>, Option<String>, u16), Box<dyn std::error::Error>> {
     log::info!("[PWAResource] Fetching: {}", url);
     let client = reqwest::blocking::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -225,6 +256,48 @@ fn fetch_from_network(url: &str, should_cache: bool, cache_path: &PathBuf) -> Re
     let mime = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
     let mut content = Vec::new();
     let _ = resp.copy_to(&mut content);
+
+    // 如果是 HTML，替换所有相对路径为绝对路径
+    if status == 200 && mime.as_ref().map(|m| m.contains("html")).unwrap_or(false) {
+        if let Ok(mut html) = String::from_utf8(content.clone()) {
+            // 计算基础路径: pwa-resource://localhost/https/domain/path/
+            let base_file_path = if let Some(last_slash) = file_path.rfind('/') {
+                &file_path[..last_slash + 1]
+            } else {
+                "/"
+            };
+            let base_url = format!("pwa-resource://localhost/{}/{}{}", proto, domain, base_file_path);
+            
+            // 替换各种相对路径引用
+            // 1. src="./xxx" -> src="pwa-resource://.../xxx"
+            // 2. href="./xxx" -> href="pwa-resource://.../xxx"
+            // 3. url(./xxx) -> url(pwa-resource://.../xxx)
+            // 4. src="/xxx" -> src="pwa-resource://.../xxx" (相对于根)
+            
+            // 使用正则替换各种属性中的路径
+            html = html.replace("src=\"./", &format!("src=\"{}", base_url));
+            html = html.replace("src='./", &format!("src='{}", base_url));
+            html = html.replace("href=\"./", &format!("href=\"{}", base_url));
+            html = html.replace("href='./", &format!("href='{}", base_url));
+            html = html.replace("src=\"/", &format!("src=\"{}", base_url));
+            html = html.replace("src='/", &format!("src='{}", base_url));
+            html = html.replace("href=\"/", &format!("href=\"{}", base_url));
+            html = html.replace("href='/", &format!("href='{}", base_url));
+            
+            // 处理 CSS url()
+            html = html.replace("url(./", &format!("url({}", base_url));
+            html = html.replace("url(/", &format!("url({}", base_url));
+            
+            // 处理 import "./xxx"
+            html = html.replace("import \"./", &format!("import \"{}", base_url));
+            html = html.replace("import './", &format!("import '{}", base_url));
+            
+            log::info!("[PWAResource] Replaced relative paths with base: {}", base_url);
+            
+            log::info!("[PWAResource] Replaced relative paths with base: {}", base_url);
+            content = html.into_bytes();
+        }
+    }
 
     if status == 200 && should_cache {
         let _ = fs::create_dir_all(cache_path.parent().unwrap());

@@ -118,24 +118,9 @@ pub fn launch_app(
             return Ok(CommandResponse::success(window_id));
         }
 
-        // 转换 URL 以支持离线缓存
-        let pwa_url = if cfg!(target_os = "android") {
-            if app_url.starts_with("https://") {
-                format!("http://pwa-resource.localhost/https/{}", &app_url[8..])
-            } else if app_url.starts_with("http://") {
-                format!("http://pwa-resource.localhost/http/{}", &app_url[7..])
-            } else {
-                app_url.clone()
-            }
-        } else {
-            if app_url.starts_with("https://") {
-                format!("pwa-resource://localhost/https/{}", &app_url[8..])
-            } else if app_url.starts_with("http://") {
-                format!("pwa-resource://localhost/http/{}", &app_url[7..])
-            } else {
-                app_url.clone()
-            }
-        };
+        // 转换 URL 以支持离线缓存 - 使用本地 HTTP 服务器
+        let pwa_url = crate::local_server::get_pwa_url(&app_url)
+            .unwrap_or_else(|| app_url.clone());
 
         let window = tauri::window::WindowBuilder::new(&app, &window_id)
             .title(&_app_name)

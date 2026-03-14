@@ -1,0 +1,3 @@
+[[permission]]
+identifier = "allow-get-local-server-port"
+commands.allow = ["get_local_server_port"]
