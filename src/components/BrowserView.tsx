@@ -118,6 +118,8 @@ export function BrowserView({
     setIsLoading(true);
     
     try {
+      // 先设置浏览器模式标志
+      await invoke('eval_js', { script: 'window.__BROWSER_MODE__ = true;' });
       // 导航到 URL
       await invoke('navigate_to_url', { url: finalUrl });
       

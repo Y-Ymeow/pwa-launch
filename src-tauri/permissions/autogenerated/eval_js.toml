@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-eval-js"
+description = "允许执行任意 JavaScript"
+commands.allow = ["eval_js"]

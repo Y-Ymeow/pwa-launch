@@ -99,15 +99,19 @@ pub fn run() {
             }
             app.manage(Arc::new(RwLock::new(None::<commands::ProxySettings>))); // ProxyConfig
 
-            // 后台任务：定期注入浏览器 UI（因为页面跳转后前端定时器会失效）
+            // 后台任务：定期注入浏览器 UI（只在浏览器模式下）
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {
                     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                     
                     if let Some(window) = app_handle.get_webview_window("main") {
-                        // 注入浏览器 UI 脚本
-                        let _ = window.eval(commands::INJECT_BROWSER_UI);
+                        // 检查是否是浏览器模式
+                        let check_script = r#"typeof window.__BROWSER_MODE__ !== 'undefined' && window.__BROWSER_MODE__"#;
+                        if let Ok(_) = window.eval(check_script) {
+                            // 注入浏览器 UI 脚本
+                            let _ = window.eval(commands::INJECT_BROWSER_UI);
+                        }
                     }
                 }
             });
@@ -160,6 +164,7 @@ pub fn run() {
             commands::get_webview_info,
             commands::reinject_browser_ui,
             commands::check_browser_ui,
+            commands::eval_js,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

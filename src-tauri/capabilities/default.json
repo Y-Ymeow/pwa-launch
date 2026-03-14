@@ -74,6 +74,7 @@
     "allow-get-webview-info",
     "allow-reinject-browser-ui",
     "allow-check-browser-ui",
+    "allow-eval-js",
     "os:default",
     "log:default",
     "dialog:default",

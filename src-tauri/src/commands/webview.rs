@@ -44,7 +44,7 @@ const BROWSER_UI_JS: &str = r#"
         white-space: nowrap !important; pointer-events: auto !important; transition: all 0.2s !important;
       }
       .install-btn:hover { transform: translateY(-1px) !important; box-shadow: 0 4px 12px rgba(102,126,234,0.4) !important; }
-      .spacer { height: 52px !important; }
+      .spacer { height: 52px !important; } 
     </style>
     <div class="browser-bar">
       <button class="browser-btn" id="__browser_back__" title="返回">←</button>
@@ -89,6 +89,12 @@ const BROWSER_UI_JS: &str = r#"
 // 浏览器 UI 注入脚本 - 通过 eval 注入
 pub const INJECT_BROWSER_UI: &str = r#"
 (function() {
+    // 检查是否在浏览器模式（通过检查是否存在浏览器视图标志）
+    if (!window.__BROWSER_MODE__ && window.parent !== window) {
+        // 在 iframe 中且不是浏览器模式，不注入
+        return;
+    }
+    
     // 检查 UI 是否已存在且用户未在输入
     function shouldInject() {
         const host = document.getElementById('__browser_ui_host__');
@@ -114,6 +120,10 @@ pub const INJECT_BROWSER_UI: &str = r#"
         if (existingHost) {
             existingHost.remove();
         }
+        
+        // 给 body 添加 padding-top，避免内容被遮挡
+        document.body.style.paddingTop = '52px';
+        document.documentElement.style.paddingTop = '52px';
         
         const host = document.createElement('div');
         host.id = '__browser_ui_host__';
@@ -355,4 +365,16 @@ pub async fn get_webview_info(
     Ok(CommandResponse::success(serde_json::json!({
         "windows": windows,
     })))
+}
+
+/// 执行 JavaScript（用于前端直接执行）
+#[tauri::command]
+pub async fn eval_js(
+    window: WebviewWindow,
+    script: String,
+) -> Result<CommandResponse<()>, String> {
+    window.eval(&script)
+        .map_err(|e| format!("执行失败: {:?}", e))?;
+    
+    Ok(CommandResponse::success(()))
 }
