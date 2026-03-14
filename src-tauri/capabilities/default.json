@@ -76,6 +76,7 @@
     "allow-check-browser-ui",
     "os:default",
     "log:default",
-    "dialog:default"
+    "dialog:default",
+    "shell:allow-open"
   ]
 }

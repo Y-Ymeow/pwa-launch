@@ -174,6 +174,24 @@ const INJECT_BROWSER_UI: &str = r#"
         console.log('[Browser UI] Injected');
     }
     
+    // 拦截所有链接点击，在当前窗口打开
+    document.addEventListener('click', (e) => {
+        const link = e.target.closest('a');
+        if (link && link.href && !link.href.startsWith('javascript:')) {
+            e.preventDefault();
+            window.location.href = link.href;
+        }
+    }, true);
+    
+    // 拦截 window.open
+    const originalOpen = window.open;
+    window.open = function(url, target, features) {
+        if (url) {
+            window.location.href = url;
+        }
+        return null;
+    };
+    
     // 立即注入
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', injectUI);
