@@ -10,7 +10,10 @@ export function createNetwork(bridge) {
       const urlStr = url.toString();
 
       // 跳过 static:// 协议的请求（让浏览器直接使用原生协议）
-      if (urlStr.startsWith("static://") || urlStr.startsWith("http://static.localhost")) {
+      if (
+        urlStr.startsWith("static://") ||
+        urlStr.startsWith("http://static.localhost")
+      ) {
         return originalFetch(url, options);
       }
 
@@ -38,32 +41,38 @@ export function createNetwork(bridge) {
       try {
         // 检测 responseType - 从 options、headers 或 URL 扩展名中获取
         let respType = options.responseType;
-        
+
         // 检查 URL 扩展名判断是否为二进制资源
         if (!respType) {
           const urlLower = urlStr.toLowerCase();
           if (urlLower.match(/\.(jpg|jpeg|png|gif|webp|bmp|ico|svg)(\?|$)/)) {
-            respType = 'blob';
+            respType = "blob";
           } else if (urlLower.match(/\.(mp3|wav|ogg|flac|aac|m4a)(\?|$)/)) {
-            respType = 'blob';
+            respType = "blob";
           } else if (urlLower.match(/\.(mp4|webm|avi|mov|mkv)(\?|$)/)) {
-            respType = 'blob';
+            respType = "blob";
           } else if (urlLower.match(/\.(pdf|zip|rar|7z|tar|gz)(\?|$)/)) {
-            respType = 'blob';
+            respType = "blob";
           }
         }
-        
+
         // 检查 Accept header
         if (!respType && options.headers) {
-          const acceptHeader = options.headers['Accept'] || options.headers['accept'];
+          const acceptHeader =
+            options.headers["Accept"] || options.headers["accept"];
           if (acceptHeader) {
-            if (acceptHeader.includes('image/') || acceptHeader.includes('audio/') || acceptHeader.includes('video/') || acceptHeader.includes('application/octet-stream')) {
-              respType = 'blob';
+            if (
+              acceptHeader.includes("image/") ||
+              acceptHeader.includes("audio/") ||
+              acceptHeader.includes("video/") ||
+              acceptHeader.includes("application/octet-stream")
+            ) {
+              respType = "blob";
             }
           }
         }
         respType = respType || "text";
-        
+
         const result = await bridge.invoke("proxy_fetch", {
           url: urlStr,
           method: options.method || "GET",
@@ -74,33 +83,33 @@ export function createNetwork(bridge) {
 
         const responseData = result.data || result;
 
+        // 创建新的 headers 对象
+        const responseHeaders = new Headers(responseData.headers || {});
+
         let body = responseData.body;
 
-        if (
-          responseData.is_base64 ||
-          respType === "arraybuffer" ||
-          respType === "blob"
-        ) {
+        // 处理二进制数据（base64 解码）
+        if (responseData.is_base64 || respType === "arraybuffer" || respType === "blob") {
           const byteCharacters = atob(body);
           const byteArray = new Uint8Array(byteCharacters.length);
           for (let i = 0; i < byteCharacters.length; i++) {
             byteArray[i] = byteCharacters.charCodeAt(i);
           }
+          body = byteArray.buffer;
+        }
 
-          if (respType === "arraybuffer") {
-            body = byteArray.buffer;
-          } else {
-            body = new Blob([byteArray], {
-              type:
-                responseData.headers["content-type"] ||
-                "application/octet-stream",
-            });
-          }
+        // 创建 Response，确保 body 是可读的
+        if (body instanceof ArrayBuffer) {
+          // 对于二进制数据，创建新的 Uint8Array 视图
+          return new Response(new Uint8Array(body), {
+            status: responseData.status,
+            headers: responseHeaders,
+          });
         }
 
         return new Response(body, {
           status: responseData.status,
-          headers: responseData.headers,
+          headers: responseHeaders,
         });
       } catch (invokeError) {
         console.error("[PWA Adapt] Proxy fetch failed:", invokeError);
@@ -175,8 +184,11 @@ export function setupXHRProxy(tauriBridge) {
           try {
             // 根据 XHR 的 responseType 设置 proxy_fetch 的 response_type
             const respType = xhr.responseType;
-            const proxyResponseType = (respType === "arraybuffer" || respType === "blob") ? respType : "text";
-            
+            const proxyResponseType =
+              respType === "arraybuffer" || respType === "blob"
+                ? respType
+                : "text";
+
             const result = await tauriBridge.invoke("proxy_fetch", {
               url: requestUrl,
               method: requestMethod,
@@ -197,7 +209,10 @@ export function setupXHRProxy(tauriBridge) {
               } catch (e) {
                 responseValue = responseData.body;
               }
-            } else if (responseType === "arraybuffer" || responseType === "blob") {
+            } else if (
+              responseType === "arraybuffer" ||
+              responseType === "blob"
+            ) {
               // 将 base64 转换为 ArrayBuffer
               const base64 = responseData.body;
               const binary = atob(base64);
@@ -208,12 +223,20 @@ export function setupXHRProxy(tauriBridge) {
               if (responseType === "arraybuffer") {
                 responseValue = bytes.buffer;
               } else {
-                responseValue = new Blob([bytes], { 
-                  type: responseData.headers["content-type"] || "application/octet-stream" 
+                responseValue = new Blob([bytes], {
+                  type:
+                    responseData.headers["content-type"] ||
+                    "application/octet-stream",
                 });
               }
             }
 
+            console.log(
+              "[PWA Adapt] Proxy response:",
+              responseData.status,
+              responseData.headers,
+              responseValue,
+            );
             Object.defineProperty(xhr, "status", {
               value: responseData.status,
               writable: false,
@@ -254,7 +277,9 @@ export function setupXHRProxy(tauriBridge) {
             return;
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error(e);
+      }
 
       return originalSend(body);
     };
@@ -268,21 +293,26 @@ export function setupXHRProxy(tauriBridge) {
 
 export function setupImageProxy(tauriBridge) {
   function proxyImage(img) {
-    const src = img.getAttribute('src') || img.src;
+    const src = img.getAttribute("src") || img.src;
     if (!src || img.dataset.proxied) return;
 
-    console.log('[PWA Adapt] Image src:', src);
-    
+    console.log("[PWA Adapt] Image src:", src);
+
     // 跳过 blob 和 data URL
     if (src.startsWith("blob:") || src.startsWith("data:")) return;
-    
+
     // 跳过已经代理的
-    if (src.startsWith("static://") || src.startsWith("http://static.localhost")) return;
-    
+    if (
+      src.startsWith("static://") ||
+      src.startsWith("http://static.localhost")
+    )
+      return;
+
     try {
       const url = new URL(src, window.location.href);
       // 跳过同源的
-      if (url.origin === window.location.origin && !src.startsWith('http')) return;
+      if (url.origin === window.location.origin && !src.startsWith("http"))
+        return;
     } catch (e) {
       // URL 解析失败，可能是相对路径，不处理
       return;
@@ -292,13 +322,13 @@ export function setupImageProxy(tauriBridge) {
     img.dataset.originalSrc = src;
 
     const staticUrl = `${tauriBridge.staticBaseUrl}/${src}`;
-    console.log('[PWA Adapt] Proxy image:', src, '->', staticUrl);
+    console.log("[PWA Adapt] Proxy image:", src, "->", staticUrl);
     img.src = staticUrl;
   }
 
   function initProxy() {
-    console.log('[PWA Adapt] Initializing image proxy...');
-    
+    console.log("[PWA Adapt] Initializing image proxy...");
+
     // 处理已存在的图片
     document.querySelectorAll("img").forEach(proxyImage);
 
@@ -318,7 +348,7 @@ export function setupImageProxy(tauriBridge) {
     if (document.body) {
       observer.observe(document.body, { childList: true, subtree: true });
     }
-    
+
     // 延迟再执行一次，确保动态加载的图片也被处理
     setTimeout(() => {
       document.querySelectorAll("img").forEach(proxyImage);
@@ -326,10 +356,9 @@ export function setupImageProxy(tauriBridge) {
   }
 
   // 页面完全加载后执行（包括所有资源）
-  if (document.readyState === 'complete') {
+  if (document.readyState === "complete") {
     initProxy();
   } else {
-    window.addEventListener('load', initProxy);
+    window.addEventListener("load", initProxy);
   }
 }
-

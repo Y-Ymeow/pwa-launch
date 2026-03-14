@@ -261,6 +261,10 @@ pub async fn proxy_fetch(
         );
     }
 
+    //log headers
+    // let mut headers = response_headers.clone();
+    // headers.insert("content-length".to_string(), response_body.len().to_string());
+    // log::info!("代理响应 [{}] headers: {:?}", url, headers);
     Ok(CommandResponse::success(serde_json::json!({
         "status": status,
         "headers": response_headers,
