@@ -144,6 +144,9 @@ export function BrowserView({
         case 'BROWSER_GO_BACK':
           onClose();
           break;
+        case 'BROWSER_GO_HOME':
+          onClose(); // 返回主页
+          break;
         case 'BROWSER_NAVIGATE':
           if (e.data.url) navigateToUrl(e.data.url);
           break;

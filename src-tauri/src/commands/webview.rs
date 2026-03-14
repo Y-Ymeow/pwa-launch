@@ -125,30 +125,25 @@ pub const INJECT_BROWSER_UI: &str = r#"
         document.body.style.paddingTop = '52px';
         document.documentElement.style.paddingTop = '52px';
         
-        // 修复浮动/固定定位的头部元素
+        // 修复浮动/固定定位的头部元素（排除 browser-bar 自身）
         const style = document.createElement('style');
         style.id = '__browser_ui_fix_style__';
         style.textContent = `
-            /* 给固定/浮动定位的头部元素添加顶部间距 */
-            *[style*="position: fixed"][style*="top: 0"],
-            *[style*="position:fixed"][style*="top:0"],
-            header[style*="position: fixed"],
-            header[style*="position:fixed"],
-            .header[style*="position: fixed"],
-            .header[style*="position:fixed"],
-            #header[style*="position: fixed"],
-            #header[style*="position:fixed"],
-            nav[style*="position: fixed"][style*="top: 0"],
-            nav[style*="position:fixed"][style*="top:0"],
-            .nav[style*="position: fixed"][style*="top: 0"],
-            .nav[style*="position:fixed"][style*="top:0"]
+            /* 给固定/浮动定位的头部元素添加顶部间距（排除 browser-ui） */
+            :not(#__browser_ui_host__):not([id^="__browser"]) *[style*="position: fixed"][style*="top: 0"],
+            :not(#__browser_ui_host__):not([id^="__browser"]) *[style*="position:fixed"][style*="top:0"],
+            header:not(#__browser_ui_host__),
+            .header:not([id^="__browser"]),
+            #header:not([id^="__browser"]),
+            nav:not(#__browser_ui_host__):not([id^="__browser"]),
+            .nav:not([id^="__browser"])
             {
                 top: 52px !important;
             }
             
-            /* 处理 sticky 定位 */
-            *[style*="position: sticky"][style*="top: 0"],
-            *[style*="position:sticky"][style*="top:0"]
+            /* 处理 sticky 定位（排除 browser-ui） */
+            :not(#__browser_ui_host__):not([id^="__browser"]) *[style*="position: sticky"][style*="top: 0"],
+            :not(#__browser_ui_host__):not([id^="__browser"]) *[style*="position:sticky"][style*="top:0"]
             {
                 top: 52px !important;
             }
@@ -233,13 +228,9 @@ pub const INJECT_BROWSER_UI: &str = r#"
             history.forward();
         });
         
-        // 返回主页
+        // 返回主页 - 发送消息给宿主
         homeBtn.addEventListener('click', () => {
-            if (window.__TAURI_INTERNALS__) {
-                window.__TAURI_INTERNALS__.invoke('navigate_back');
-            } else {
-                window.location.href = 'tauri://localhost'; // 回退到本地主页
-            }
+            window.parent.postMessage({ type: 'BROWSER_GO_HOME' }, '*');
         });
         
         // 刷新
