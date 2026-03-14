@@ -98,16 +98,15 @@ export function createNetwork(bridge) {
           body = byteArray.buffer;
         }
 
-        // 创建 Response，确保 body 是可读的
+        // 创建 Response - 确保 body 是 Uint8Array 以支持 blob()
+        let responseBody;
         if (body instanceof ArrayBuffer) {
-          // 对于二进制数据，创建新的 Uint8Array 视图
-          return new Response(new Uint8Array(body), {
-            status: responseData.status,
-            headers: responseHeaders,
-          });
+          responseBody = new Uint8Array(body);
+        } else {
+          responseBody = body;
         }
 
-        return new Response(body, {
+        return new Response(responseBody, {
           status: responseData.status,
           headers: responseHeaders,
         });
