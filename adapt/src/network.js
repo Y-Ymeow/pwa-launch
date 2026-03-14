@@ -34,6 +34,71 @@ export function createNetwork(bridge) {
         return originalFetch(urlStr, options);
       }
 
+      // 检测是否是流式请求 (AI SSE/Stream)
+      const isStreamRequest = options.headers?.['Accept'] === 'text/event-stream' ||
+                              options.headers?.['accept'] === 'text/event-stream' ||
+                              (typeof options.body === 'string' && options.body.includes('"stream":true')) ||
+                              (typeof options.body === 'string' && options.body.includes('"stream": true'));
+      
+      // 检测是否标记为直接请求（不走代理，用于支持 CORS 的 API）
+      const isDirectRequest = options.headers?.['X-Direct-Request'] === 'true' ||
+                              options.headers?.['x-direct-request'] === 'true';
+      
+      // 使用 fetch:// 协议直接代理请求（比 invoke 快）
+      if (urlStr.startsWith("http://") || urlStr.startsWith("https://")) {
+        // 如果是标记为直接请求，直接走原生 fetch
+        if (isDirectRequest) {
+          console.log("[PWA Adapt] Direct request (no proxy):", urlStr);
+          // 删除标记后再发送，避免发送到服务器
+          const cleanOptions = {...options};
+          if (cleanOptions.headers) {
+            delete cleanOptions.headers['X-Direct-Request'];
+            delete cleanOptions.headers['x-direct-request'];
+          }
+          return await originalFetch(urlStr, cleanOptions);
+        }
+        
+        // 如果是流式请求，需要特殊处理
+        if (isStreamRequest) {
+          console.log("[PWA Adapt] Stream request detected, using streaming proxy:", urlStr);
+          // 流式请求暂时回退到原生 fetch（可能需要处理 CORS）
+          // 或者可以实现专门的流式代理命令
+          try {
+            return await originalFetch(urlStr, options);
+          } catch (e) {
+            console.warn("[PWA Adapt] Direct stream fetch failed, trying proxy:", e);
+          }
+        }
+        
+        // Android 上映射为 http://fetch.localhost/，其他平台用 fetch://localhost/
+        const isAndroid = /Android/i.test(navigator.userAgent);
+        const fetchUrl = isAndroid 
+          ? 'http://fetch.localhost/proxy'
+          : 'fetch://localhost/proxy';
+        
+        try {
+          // 构造请求 body
+          const proxyBody = JSON.stringify({
+            target: urlStr,
+            method: options.method || 'GET',
+            headers: options.headers || {},
+            body: options.body
+          });
+          
+          // 发送给 fetch://localhost/proxy
+          return await originalFetch(fetchUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: proxyBody
+          });
+        } catch (error) {
+          console.error("[PWA Adapt] Fetch protocol error:", error);
+          console.log("[PWA Adapt] Falling back to proxy_fetch");
+        }
+      }
+
       if (urlStr.startsWith("tauri://")) {
         const match = urlStr.match(/tauri:\/\/(.+)/);
         if (match) {
@@ -198,71 +263,75 @@ export function setupXHRProxy(tauriBridge) {
           }
 
           try {
-            // 根据 XHR 的 responseType 设置 proxy_fetch 的 response_type
-            const respType = xhr.responseType;
-            const proxyResponseType =
-              respType === "arraybuffer" || respType === "blob"
-                ? respType
-                : "text";
-
-            const result = await tauriBridge.invoke("proxy_fetch", {
-              url: requestUrl,
+            // 使用 fetch:// 协议（比 proxy_fetch 快）
+            const isAndroid = /Android/i.test(navigator.userAgent);
+            const fetchUrl = isAndroid 
+              ? 'http://fetch.localhost/proxy'
+              : 'fetch://localhost/proxy';
+            
+            // 构造请求 body
+            const proxyBody = JSON.stringify({
+              target: requestUrl,
               method: requestMethod,
               headers: requestHeaders,
-              body: requestBody,
-              responseType: proxyResponseType,
+              body: requestBody
+            });
+            
+            // 使用原生 fetch 发起请求
+            const response = await originalFetch(fetchUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: proxyBody
+            });
+            
+            // 读取响应
+            const responseType = xhr.responseType || "text";
+            let responseValue;
+            let responseText;
+            
+            if (responseType === "arraybuffer") {
+              responseValue = await response.arrayBuffer();
+              responseText = "";
+            } else if (responseType === "blob") {
+              responseValue = await response.blob();
+              responseText = "";
+            } else if (responseType === "json") {
+              responseText = await response.text();
+              try {
+                responseValue = JSON.parse(responseText);
+              } catch (e) {
+                responseValue = responseText;
+              }
+            } else {
+              // text 或其他
+              responseText = await response.text();
+              responseValue = responseText;
+            }
+            
+            // 解析响应头
+            responseHeaders = {};
+            response.headers.forEach((value, key) => {
+              responseHeaders[key] = value;
             });
 
-            const responseData = result.data || result;
-            responseHeaders = responseHeaders || {};
-
-            let responseValue = responseData.body;
-            const responseType = xhr.responseType || "text";
-
-            if (responseType === "json") {
-              try {
-                responseValue = JSON.parse(responseData.body);
-              } catch (e) {
-                responseValue = responseData.body;
-              }
-            } else if (
-              responseType === "arraybuffer" ||
-              responseType === "blob"
-            ) {
-              // 将 base64 转换为 ArrayBuffer
-              const base64 = responseData.body;
-              const binary = atob(base64);
-              const bytes = new Uint8Array(binary.length);
-              for (let i = 0; i < binary.length; i++) {
-                bytes[i] = binary.charCodeAt(i);
-              }
-              if (responseType === "arraybuffer") {
-                responseValue = bytes.buffer;
-              } else {
-                responseValue = new Blob([bytes], {
-                  type:
-                    responseData.headers["content-type"] ||
-                    "application/octet-stream",
-                });
-              }
-            }
-
             console.log(
-              "[PWA Adapt] Proxy response:",
-              responseData.status,
-              responseData.headers,
-              responseValue,
+              "[PWA Adapt] XHR proxy response:",
+              response.status,
+              response.statusText,
             );
+            
             Object.defineProperty(xhr, "status", {
-              value: responseData.status,
+              value: response.status,
               writable: false,
             });
             Object.defineProperty(xhr, "statusText", {
-              value: responseData.status === 200 ? "OK" : "",
+              value: response.statusText || (response.status === 200 ? "OK" : ""),
               writable: false,
             });
             Object.defineProperty(xhr, "responseText", {
-              value: responseData.body,
+              value: responseText,
               writable: false,
             });
             Object.defineProperty(xhr, "response", {

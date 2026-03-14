@@ -255,21 +255,15 @@ pub async fn resolve_local_file_url(path: String) -> Result<CommandResponse<Stri
     );
 
     if is_media {
-        // 音视频：优先使用本地 HTTP 代理服务器 (最兼容)
-        if let Some(url) = crate::local_server::get_file_url(path.clone()) {
-            log::info!("Local Server Proxy URL for media: {}", url);
-            Ok(CommandResponse::success(url))
+        // 音视频：使用 static 协议
+        let encoded_path = urlencoding::encode(&path);
+        let url = if cfg!(target_os = "android") {
+            format!("http://static.localhost/{}", encoded_path)
         } else {
-            // 回退到 static 协议
-            let encoded_path = urlencoding::encode(&path);
-            let url = if cfg!(target_os = "android") {
-                format!("http://static.localhost/{}", encoded_path)
-            } else {
-                format!("static://localhost/{}", encoded_path)
-            };
-            log::info!("Fallback to Static URL for media: {}", url);
-            Ok(CommandResponse::success(url))
-        }
+            format!("static://localhost/{}", encoded_path)
+        };
+        log::info!("Static URL for media: {}", url);
+        Ok(CommandResponse::success(url))
     } else {
         // 图片、文档等：使用 static 协议（更快，无 HTTP 开销）
         log::info!("Static URL for file: {}", path);

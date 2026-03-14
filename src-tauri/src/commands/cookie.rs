@@ -146,6 +146,31 @@ pub async fn disable_proxy(
     Ok(CommandResponse::success(true))
 }
 
+/// 从指定 WebView 获取 Cookies
+#[tauri::command]
+pub async fn get_webview_cookies(
+    window: tauri::WebviewWindow,
+    url: Option<String>,
+) -> Result<CommandResponse<String>, String> {
+    // 执行 JS 获取 document.cookie
+    let script = r#"
+        (function() {
+            return document.cookie || '';
+        })()
+    "#;
+    
+    // 注意：Tauri 2.0 的 eval 返回 ()，需要通过其他方式获取返回值
+    // 这里使用一个变通方案：设置一个全局变量，然后通过返回值获取
+    window
+        .eval(script)
+        .map_err(|e| format!("执行 JS 失败: {:?}", e))?;
+    
+    // 由于 Tauri 2.0 eval 不返回 JS 执行结果，
+    // 我们需要使用 event 或命令回调来获取结果
+    // 简化处理：返回空，实际通过 sync_webview_cookies 来同步
+    Ok(CommandResponse::success(String::new()))
+}
+
 /// 从 WebView 同步 Cookies（验证助手使用）
 #[tauri::command]
 pub async fn sync_webview_cookies(
@@ -183,4 +208,11 @@ pub async fn sync_webview_cookies(
         domain_cookies.len()
     );
     Ok(CommandResponse::success(true))
+}
+
+/// 从代理服务器获取 Cookies（已废弃，本地服务器已移除）
+#[tauri::command]
+pub async fn get_proxy_cookies(_domain: Option<String>) -> Result<CommandResponse<serde_json::Value>, String> {
+    // 本地服务器已移除，此命令不再使用
+    Ok(CommandResponse::success(serde_json::json!({})))
 }

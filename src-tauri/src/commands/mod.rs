@@ -55,12 +55,14 @@ impl ProxySettings {
 // 子模块
 pub mod backup;
 pub mod cookie;
+pub mod fetch_protocol;
 pub mod file_dialog;
 pub mod fs;
 pub mod opfs;
 pub mod proxy;
+
 pub mod pwa;
-pub mod pwa_resource_protocol;
+
 pub mod static_protocol;
 pub mod stream_proxy;
 pub mod webview;
@@ -73,6 +75,7 @@ pub use file_dialog::*;
 pub use fs::*;
 pub use opfs::*;
 pub use proxy::*;
+
 pub use pwa::*;
 pub use stream_proxy::*;
 pub use webview::*;
@@ -87,11 +90,4 @@ fn extract_domain(url: &str) -> String {
     }
 }
 
-/// 获取本地服务器端口号
-#[tauri::command]
-pub fn get_local_server_port() -> CommandResponse<u16> {
-    match crate::local_server::get_server_port() {
-        Some(port) => CommandResponse::success(port),
-        None => CommandResponse::error("Local server not initialized".to_string()),
-    }
-}
+

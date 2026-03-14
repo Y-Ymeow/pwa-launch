@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./styles/App.css";
-import "../adapt.min.js";
 import {
   BrowserView,
   AppList,
@@ -109,9 +108,9 @@ function App() {
     apps.find((a) => a.id === appId)?.icon_url;
 
   // URL 代理转换 - 直接使用原始 URL，依赖 WebView 自带缓存
-  const getProxiedUrl = (url: string) => {
+  const getProxiedUrl = useCallback((url: string) => {
     return url;
-  };
+  }, []);
 
   // 启动或切换 PWA
   const launchOrSwitchPwa = useCallback(
@@ -132,7 +131,7 @@ function App() {
 
       if (runningPwas.length >= MAX_IFRAMES) {
         const lruPwa = [...runningPwas].sort(
-          (a, b) => a.lastAccessed - b.lastAccessed(),
+          (a, b) => a.lastAccessed - b.lastAccessed,
         )[0];
         const iframe = iframesRef.current[lruPwa.appId];
         let scrollY = 0;
@@ -182,63 +181,69 @@ function App() {
   );
 
   // iframe 加载完成
-  const handleIframeLoad = (appId: string) => {
-    const pwa = runningPwas.find((p) => p.appId === appId);
-    if (pwa?.scrollY && pwa.scrollY > 0) {
-      const iframe = iframesRef.current[appId];
-      try {
-        iframe?.contentWindow?.scrollTo(0, pwa.scrollY);
-      } catch (e) {}
-    }
-  };
+  const handleIframeLoad = useCallback(
+    (appId: string) => {
+      const pwa = runningPwas.find((p) => p.appId === appId);
+      if (pwa?.scrollY && pwa.scrollY > 0) {
+        const iframe = iframesRef.current[appId];
+        try {
+          iframe?.contentWindow?.scrollTo(0, pwa.scrollY);
+        } catch (e) {}
+      }
+    },
+    [runningPwas],
+  );
 
   // 关闭 PWA
-  const closePwa = (appId: string) => {
-    const pwa = runningPwas.find((p) => p.appId === appId);
-    if (pwa) {
-      const iframe = iframesRef.current[appId];
-      let scrollY = 0;
-      try {
-        scrollY = iframe?.contentWindow?.scrollY || 0;
-      } catch (e) {}
+  const closePwa = useCallback(
+    (appId: string) => {
+      const pwa = runningPwas.find((p) => p.appId === appId);
+      if (pwa) {
+        const iframe = iframesRef.current[appId];
+        let scrollY = 0;
+        try {
+          scrollY = iframe?.contentWindow?.scrollY || 0;
+        } catch (e) {}
 
-      setSnapshots((prev) => ({
-        ...prev,
-        [appId]: {
-          appId,
-          url: pwa.url,
-          name: pwa.name,
-          scrollY,
-          timestamp: Date.now(),
-        },
-      }));
+        setSnapshots((prev) => ({
+          ...prev,
+          [appId]: {
+            appId,
+            url: pwa.url,
+            name: pwa.name,
+            scrollY,
+            timestamp: Date.now(),
+          },
+        }));
 
-      if (iframesRef.current[appId]) {
-        delete iframesRef.current[appId];
+        if (iframesRef.current[appId]) {
+          delete iframesRef.current[appId];
+        }
       }
-    }
 
-    const newRunning = runningPwas.filter((p) => p.appId !== appId);
-    setRunningPwas(newRunning);
+      const newRunning = runningPwas.filter((p) => p.appId !== appId);
+      setRunningPwas(newRunning);
 
-    if (activePwaId === appId) {
-      if (newRunning.length > 0) {
-        setActivePwaId(newRunning[newRunning.length - 1].appId);
-      } else {
-        setActivePwaId(null);
-        setViewMode("apps");
+      if (activePwaId === appId) {
+        if (newRunning.length > 0) {
+          setActivePwaId(newRunning[newRunning.length - 1].appId);
+        } else {
+          setActivePwaId(null);
+          setViewMode("apps");
+        }
       }
-    }
-  };
+    },
+    [runningPwas, activePwaId],
+  );
 
   // 刷新 PWA
-  const refreshPwa = (appId: string) => {
+  const refreshPwa = useCallback((appId: string) => {
     const iframe = iframesRef.current[appId];
     if (iframe) {
       iframe.src = iframe.src;
       showMessage("success", "页面已刷新");
     }
-  };
+  }, []);
 
   // 卸载应用
   const handleUninstall = async (appId: string) => {
@@ -262,22 +267,6 @@ function App() {
       }
     } catch (error) {
       showMessage("error", `卸载失败：${error}`);
-    }
-  };
-
-  // 更新应用
-  const handleUpdate = async (appId: string) => {
-    if (!confirm("确定要清理本地缓存并检查更新吗？")) return;
-
-    try {
-      const response = await invoke<CommandResponse<boolean>>("update_pwa", {
-        appId,
-      });
-      if (response.success) {
-        showMessage("success", "缓存已清理，下次启动将加载最新资源");
-      }
-    } catch (error) {
-      showMessage("error", `清理失败：${error}`);
     }
   };
 
@@ -310,38 +299,46 @@ function App() {
             browserHistory={browserHistory}
             setBrowserHistory={setBrowserHistory}
             onClose={() => setViewMode("apps")}
-            getProxiedUrl={getProxiedUrl}
             showMessage={showMessage}
           />
         )}
 
-        {viewMode === "pwa" && (
-          <div className="iframe-container">
-            {runningPwas.map((pwa) => (
-              <div
-                key={pwa.appId}
-                className={`iframe-wrapper ${activePwaId === pwa.appId ? "active" : ""}`}
-              >
-                {restoringPwa === pwa.appId && (
-                  <div className="restoring-overlay">
-                    <div className="restoring-content">
-                      <div className="spinner"></div>
-                      <span>正在恢复 {pwa.name}...</span>
-                    </div>
+        {/* PWA iframe 容器 - 使用 CSS 隐藏而不是卸载，保持后台运行 */}
+        <div 
+          className="iframe-container" 
+          style={{ 
+            display: viewMode === "pwa" ? "block" : "none",
+            visibility: viewMode === "pwa" ? "visible" : "hidden"
+          }}
+        >
+          {runningPwas.map((pwa) => (
+            <div
+              key={pwa.appId}
+              className={`iframe-wrapper ${activePwaId === pwa.appId ? "active" : ""}`}
+              style={{
+                display: activePwaId === pwa.appId ? "block" : "none"
+              }}
+            >
+              {restoringPwa === pwa.appId && (
+                <div className="restoring-overlay">
+                  <div className="restoring-content">
+                    <div className="spinner"></div>
+                    <span>正在恢复 {pwa.name}...</span>
                   </div>
-                )}
-                <iframe
-                  ref={(el) => {
-                    if (el) iframesRef.current[pwa.appId] = el;
-                  }}
-                  src={getProxiedUrl(pwa.url)}
-                  sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads allow-modals"
-                  allow="fullscreen; clipboard-write; autoplay"
-                  onLoad={() => handleIframeLoad(pwa.appId)}
-                  title={pwa.name}
-                />
-              </div>
-            ))}
+                </div>
+              )}
+              <iframe
+                ref={(el) => {
+                  if (el) iframesRef.current[pwa.appId] = el;
+                }}
+                src={getProxiedUrl(pwa.url)}
+                sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads allow-modals"
+                allow="fullscreen; clipboard-write; autoplay"
+                onLoad={() => handleIframeLoad(pwa.appId)}
+                title={pwa.name}
+              />
+            </div>
+          ))}
 
             {/* 悬浮切换按钮 */}
             <div className="floating-switcher right">
@@ -469,7 +466,6 @@ function App() {
               </div>
             </div>
           </div>
-        )}
 
         {viewMode === "apps" && (
           <AppList
@@ -482,7 +478,6 @@ function App() {
             openBrowser={openBrowser}
             launchOrSwitchPwa={launchOrSwitchPwa}
             handleUninstall={handleUninstall}
-            handleUpdate={handleUpdate}
           />
         )}
       </main>
@@ -513,4 +508,3 @@ function App() {
 }
 
 export default App;
-

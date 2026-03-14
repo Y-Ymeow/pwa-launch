@@ -228,29 +228,6 @@ pub fn update_pwa(
     Ok(CommandResponse::success(true))
 }
 
-/// 强制清除所有缓存（解决 404 问题）
-#[tauri::command]
-pub fn clear_all_cache(app: tauri::AppHandle) -> Result<CommandResponse<bool>, String> {
-    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-
-    // 1. 清除 pwa_cache 目录
-    let pwa_cache_dir = app_data_dir.join("pwa_cache");
-    if pwa_cache_dir.exists() {
-        log::info!("[PWA] Clearing all PWA cache: {:?}", pwa_cache_dir);
-        std::fs::remove_dir_all(&pwa_cache_dir).ok();
-        std::fs::create_dir_all(&pwa_cache_dir).ok();
-    }
-
-    // 2. 清除 WebView 缓存目录
-    let webview_cache = app_data_dir.join("webview_cache");
-    if webview_cache.exists() {
-        log::info!("[PWA] Clearing WebView cache: {:?}", webview_cache);
-        std::fs::remove_dir_all(&webview_cache).ok();
-    }
-
-    Ok(CommandResponse::success(true))
-}
-
 #[tauri::command]
 pub fn close_pwa_window(
     app: AppHandle,

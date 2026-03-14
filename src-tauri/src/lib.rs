@@ -1,6 +1,5 @@
 pub mod commands;
 pub mod db;
-pub mod local_server;
 pub mod models;
 pub mod utils;
 
@@ -55,19 +54,7 @@ pub fn run() {
         .register_uri_scheme_protocol("static", |_app, request| {
             commands::static_protocol::handle_static_request(request)
         })
-        .register_uri_scheme_protocol("pwa-resource", |ctx, request| {
-            log::info!("[PWAResource] Handling request: {}", request.uri());
-                match commands::pwa_resource_protocol::handle_resource_request(ctx.app_handle(), request) {
-                    Ok(res) => res,
-                    Err(e) => {
-                        log::error!("[PWAResource] Error: {}", e);
-                        http::Response::builder()
-                            .status(500)
-                            .body(e.to_string().into_bytes())
-                            .unwrap()
-                    }
-                }
-                })
+
                 .register_uri_scheme_protocol("adapt", |_app, _request| {
             // 编译时嵌入 adapt.min.js 内容，避免运行时文件路径问题（Android 无法访问文件）
             const ADAPT_JS: &str = include_str!("../../adapt.min.js");
@@ -80,6 +67,22 @@ pub fn run() {
                 .body(ADAPT_JS.as_bytes().to_vec())
                 .expect("Failed to build response")
         })
+        .register_uri_scheme_protocol("fetch", |_app, request| {
+            // Fetch 协议：fetch://example.com/path -> 代理 HTTP 请求
+            // 比 invoke 快，不需要 postMessage 桥接
+            match commands::fetch_protocol::handle_fetch_request(&request) {
+                Ok(res) => res,
+                Err(e) => {
+                    log::error!("[FetchProtocol] Error: {}", e);
+                    http::Response::builder()
+                        .status(500)
+                        .header("Content-Type", "text/plain")
+                        .body(e.to_string().into_bytes())
+                        .unwrap()
+                }
+            }
+        })
+
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
@@ -95,29 +98,7 @@ pub fn run() {
                 HashMap<String, HashMap<String, String>>,
             >::new()))); // CookieStore
             
-            // 启动本地文件服务器
-            match local_server::init_local_server(8765) {
-                Ok(port) => log::info!("[LocalServer] Started on port {}", port),
-                Err(e) => log::error!("[LocalServer] Failed to start: {}", e),
-            }
             app.manage(Arc::new(RwLock::new(None::<commands::ProxySettings>))); // ProxyConfig
-
-            // 后台任务：定期注入浏览器 UI（只在浏览器模式下）
-            let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                loop {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                    
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        // 检查是否是浏览器模式
-                        let check_script = r#"typeof window.__BROWSER_MODE__ !== 'undefined' && window.__BROWSER_MODE__"#;
-                        if let Ok(_) = window.eval(check_script) {
-                            // 注入浏览器 UI 脚本
-                            let _ = window.eval(commands::INJECT_BROWSER_UI);
-                        }
-                    }
-                }
-            });
 
             Ok(())
         })
@@ -144,7 +125,7 @@ pub fn run() {
             commands::get_app_info,
             commands::list_running_pwas,
             commands::update_pwa,
-            commands::clear_all_cache,
+
             commands::close_pwa_window,
             commands::clear_data,
             commands::backup_data,
@@ -166,6 +147,7 @@ pub fn run() {
             commands::read_file_range,
             commands::resolve_local_file_url,
             commands::sync_webview_cookies,
+            commands::get_proxy_cookies,
             commands::fs_read_dir,
             commands::fs_write_file,
             commands::fs_create_dir,
@@ -184,7 +166,7 @@ pub fn run() {
             commands::reinject_browser_ui,
             commands::check_browser_ui,
             commands::eval_js,
-            commands::get_local_server_port,
+
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -81,6 +81,7 @@
     "allow-check-browser-ui",
     "allow-eval-js",
     "allow-get-local-server-port",
+    "allow-get-proxy-cookies",
     "os:default",
     "log:default",
     "dialog:default",

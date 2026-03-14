@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Browser Tab</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { 
+      width: 100%; 
+      height: 100%; 
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif; 
+      background: white;
+    }
+
+    /* 页面容器 - 占满全屏 */
+    .page-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: white;
+    }
+
+    .page-iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+
+    /* 加载状态 */
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #1a1a2e;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 14px;
+      z-index: 1000;
+    }
+
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 2px solid rgba(255,255,255,0.1);
+      border-top-color: #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 12px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <!-- 加载状态 -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+    <span>正在加载...</span>
+  </div>
+
+  <!-- 页面容器 -->
+  <div class="page-container">
+    <iframe class="page-iframe" id="pageFrame" sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads"></iframe>
+  </div>
+
+  <script src="adapt.min.js"></script>
+  <script>
+    (function() {
+      const pageFrame = document.getElementById('pageFrame');
+      const loadingOverlay = document.getElementById('loadingOverlay');
+
+      // 从 URL 参数获取目标地址
+      const params = new URLSearchParams(window.location.search);
+      const targetUrl = params.get('url');
+
+      // 标记为浏览器模式
+      window.__BROWSER_MODE__ = true;
+      window.__BROWSER_TAB_ID__ = params.get('tabId') || Date.now().toString();
+
+      // 加载目标页面
+      if (targetUrl) {
+        // 使用 proxy:// 协议通过自定义协议处理
+        const proxyUrl = 'proxy://web/' + encodeURIComponent(targetUrl);
+        pageFrame.src = proxyUrl;
+      }
+
+      // 页面加载完成
+      pageFrame.addEventListener('load', () => {
+        loadingOverlay.classList.add('hidden');
+      });
+
+      // 监听来自 iframe 的消息
+      window.addEventListener('message', (e) => {
+        if (e.source === pageFrame.contentWindow) {
+          // 转发给父窗口
+          window.parent.postMessage(e.data, '*');
+        }
+      });
+
+      // 暴露接口给父窗口
+      window.browserTab = {
+        navigate: (url) => {
+          if (url) {
+            const proxyUrl = 'proxy://web/' + encodeURIComponent(url);
+            pageFrame.src = proxyUrl;
+            loadingOverlay.classList.remove('hidden');
+          }
+        },
+        getUrl: () => targetUrl
+      };
+    })();
+  </script>
+</body>
+</html>

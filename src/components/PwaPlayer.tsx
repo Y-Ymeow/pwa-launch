@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, memo } from 'react';
 import type { RunningPwa, PwaSnapshot, AppInfo } from './types';
 
 interface PwaPlayerProps {
@@ -15,11 +15,10 @@ interface PwaPlayerProps {
   setShowSwitcher: (show: boolean) => void;
   closePwa: (appId: string) => void;
   refreshPwa: (appId: string) => void;
-  handleUpdate: (appId: string) => void;
   getAppIcon: (appId: string) => string | undefined;
 }
 
-export function PwaPlayer({
+function PwaPlayerComponent({
   runningPwas,
   activePwaId,
   restoringPwa,
@@ -33,7 +32,6 @@ export function PwaPlayer({
   setShowSwitcher,
   closePwa,
   refreshPwa,
-  handleUpdate,
   getAppIcon,
 }: PwaPlayerProps) {
   const iframesRef = useRef<Record<string, HTMLIFrameElement>>({});
@@ -122,16 +120,6 @@ export function PwaPlayer({
                 </div>
                 <div className="item-actions">
                   <button
-                    className="btn-update-item"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleUpdate(pwa.appId);
-                    }}
-                    title="清理缓存并从网络重新加载"
-                  >
-                    🔄
-                  </button>
-                  <button
                     className="btn-refresh-item"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -186,3 +174,5 @@ export function PwaPlayer({
     </div>
   );
 }
+
+export const PwaPlayer = memo(PwaPlayerComponent);

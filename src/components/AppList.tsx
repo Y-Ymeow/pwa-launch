@@ -1,6 +1,12 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { AppInfo, RunningPwa, PwaSnapshot, CommandResponse, ViewMode } from './types';
+import type {
+  AppInfo,
+  RunningPwa,
+  PwaSnapshot,
+  CommandResponse,
+  ViewMode,
+} from "./types";
 
 interface AppListProps {
   apps: AppInfo[];
@@ -12,7 +18,6 @@ interface AppListProps {
   openBrowser: () => void;
   launchOrSwitchPwa: (app: AppInfo) => void;
   handleUninstall: (appId: string) => void;
-  handleUpdate: (appId: string) => void;
 }
 
 export function AppList({
@@ -25,7 +30,6 @@ export function AppList({
   openBrowser,
   launchOrSwitchPwa,
   handleUninstall,
-  handleUpdate,
 }: AppListProps) {
   const [installUrl, setInstallUrl] = useState("");
   const [installing, setInstalling] = useState(false);
@@ -67,24 +71,12 @@ export function AppList({
 
       {/* 快捷入口 */}
       <section className="quick-actions">
-        <button className="quick-btn browser-btn-large" onClick={() => openBrowser()}>
+        <button
+          className="quick-btn browser-btn-large"
+          onClick={() => openBrowser()}
+        >
           <span className="quick-icon">🌐</span>
           <span className="quick-text">打开浏览器</span>
-        </button>
-        <button 
-          className="quick-btn" 
-          onClick={async () => {
-            try {
-              await invoke('clear_all_cache');
-              showMessage('success', '所有缓存已清除，请重新启动应用');
-            } catch (error) {
-              showMessage('error', `清除缓存失败：${String(error)}`);
-            }
-          }}
-          title="解决 404 问题"
-        >
-          <span className="quick-icon">🗑️</span>
-          <span className="quick-text">清除缓存</span>
         </button>
       </section>
 
@@ -120,7 +112,10 @@ export function AppList({
               const hasSnapshot = snapshots[app.id];
 
               return (
-                <div key={app.id} className={`app-card ${isRunning ? "running" : ""}`}>
+                <div
+                  key={app.id}
+                  className={`app-card ${isRunning ? "running" : ""}`}
+                >
                   <div className="app-icon">
                     {app.icon_url ? (
                       <img
@@ -128,7 +123,9 @@ export function AppList({
                         alt={app.name}
                         onError={(e) => {
                           (e.target as HTMLImageElement).style.display = "none";
-                          (e.target as HTMLImageElement).parentElement!.innerHTML = "<span>📱</span>";
+                          (
+                            e.target as HTMLImageElement
+                          ).parentElement!.innerHTML = "<span>📱</span>";
                         }}
                       />
                     ) : (
@@ -137,26 +134,29 @@ export function AppList({
                   </div>
                   <h3>{app.name}</h3>
                   <p className="app-status">
-                    {isRunning ? "🟢 运行中" : hasSnapshot ? "💤 已暂停" : "⚪ 未启动"}
+                    {isRunning
+                      ? "🟢 运行中"
+                      : hasSnapshot
+                        ? "💤 已暂停"
+                        : "⚪ 未启动"}
                   </p>
-                  <p className="app-date">安装于：{formatDate(app.installed_at)}</p>
+                  <p className="app-date">
+                    安装于：{formatDate(app.installed_at)}
+                  </p>
 
                   <div className="app-actions">
                     <button
                       className="btn-launch"
                       onClick={() => {
                         launchOrSwitchPwa(app);
-                        setViewMode('pwa');
+                        setViewMode("pwa");
                       }}
                     >
-                      {isRunning ? "🔀 切换" : hasSnapshot ? "▶️ 恢复" : "🚀 启动"}
-                    </button>
-                    <button
-                      className="btn-update"
-                      onClick={() => handleUpdate(app.id)}
-                      title="清理本地缓存并更新"
-                    >
-                      🔄 更新
+                      {isRunning
+                        ? "🔀 切换"
+                        : hasSnapshot
+                          ? "▶️ 恢复"
+                          : "🚀 启动"}
                     </button>
                     <button
                       className="btn-danger"
