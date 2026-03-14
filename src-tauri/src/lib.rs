@@ -143,6 +143,7 @@ pub fn run() {
             commands::get_app_info,
             commands::list_running_pwas,
             commands::update_pwa,
+            commands::clear_all_cache,
             commands::close_pwa_window,
             commands::clear_data,
             commands::backup_data,

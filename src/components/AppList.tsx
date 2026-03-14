@@ -71,6 +71,21 @@ export function AppList({
           <span className="quick-icon">🌐</span>
           <span className="quick-text">打开浏览器</span>
         </button>
+        <button 
+          className="quick-btn" 
+          onClick={async () => {
+            try {
+              await invoke('clear_all_cache');
+              showMessage('success', '所有缓存已清除，请重新启动应用');
+            } catch (error) {
+              showMessage('error', `清除缓存失败：${String(error)}`);
+            }
+          }}
+          title="解决 404 问题"
+        >
+          <span className="quick-icon">🗑️</span>
+          <span className="quick-text">清除缓存</span>
+        </button>
       </section>
 
       {/* 安装表单 */}

@@ -40,6 +40,7 @@
     "allow-restore-data",
     "allow-get-app-info",
     "allow-update-pwa",
+    "allow-clear-all-cache",
     "allow-proxy-fetch",
     "allow-get-cookies",
     "allow-set-cookies",

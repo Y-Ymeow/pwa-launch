@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-clear-all-cache"
+description = "允许清除所有缓存"
+commands.allow = ["clear_all_cache"]
