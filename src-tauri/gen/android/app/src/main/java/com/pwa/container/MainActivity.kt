@@ -45,11 +45,6 @@ class MainActivity : TauriActivity() {
         
         // 刘海屏适配：允许内容延伸到刘海区域
         setupEdgeToEdgeDisplay()
-        
-        // 延迟设置支持全屏的 WebChromeClient
-        handler.postDelayed({
-            setupFullscreenChromeClient()
-        }, 500)
 
         // 注册广播接收器
         pwaLaunchReceiver = object : BroadcastReceiver() {
@@ -235,18 +230,12 @@ class MainActivity : TauriActivity() {
     fun isVideoFullscreen(): Boolean = customView != null
     
     /**
-     * 设置支持视频全屏的 WebChromeClient
+     * WebView 创建时设置支持全屏的 WebChromeClient
      */
-    private fun setupFullscreenChromeClient() {
-        try {
-            val webView = findViewById<WebView>(resources.getIdentifier("tauri_webview", "id", packageName))
-            webView?.let {
-                val chromeClient = FullscreenChromeClient(this as WryActivity, this)
-                it.webChromeClient = chromeClient
-                android.util.Log.d("MainActivity", "FullscreenChromeClient 设置成功")
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "设置 FullscreenChromeClient 失败: ${e.message}")
-        }
+    override fun onWebViewCreate(webView: WebView) {
+        super.onWebViewCreate(webView)
+        // 设置支持视频全屏的 WebChromeClient
+        webView.webChromeClient = FullscreenChromeClient(this, this)
+        android.util.Log.d("MainActivity", "FullscreenChromeClient 设置成功")
     }
 }
