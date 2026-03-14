@@ -99,6 +99,19 @@ pub fn run() {
             }
             app.manage(Arc::new(RwLock::new(None::<commands::ProxySettings>))); // ProxyConfig
 
+            // 后台任务：定期注入浏览器 UI（因为页面跳转后前端定时器会失效）
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                    
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        // 注入浏览器 UI 脚本
+                        let _ = window.eval(commands::INJECT_BROWSER_UI);
+                    }
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -87,7 +87,7 @@ const BROWSER_UI_JS: &str = r#"
 "#;
 
 // 浏览器 UI 注入脚本 - 通过 eval 注入
-const INJECT_BROWSER_UI: &str = r#"
+pub const INJECT_BROWSER_UI: &str = r#"
 (function() {
     // 每次页面加载都尝试注入
     function injectUI() {
