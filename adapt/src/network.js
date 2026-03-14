@@ -244,22 +244,40 @@ export function setupImageProxy(tauriBridge) {
     img.src = staticUrl;
   }
 
-  document.querySelectorAll("img").forEach(proxyImage);
+  function initProxy() {
+    console.log('[PWA Adapt] Initializing image proxy...');
+    
+    // 处理已存在的图片
+    document.querySelectorAll("img").forEach(proxyImage);
 
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      mutation.addedNodes.forEach((node) => {
-        if (node.nodeName === "IMG") {
-          proxyImage(node);
-        } else if (node.querySelectorAll) {
-          node.querySelectorAll("img").forEach(proxyImage);
-        }
+    // 监听动态添加的图片
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeName === "IMG") {
+            proxyImage(node);
+          } else if (node.querySelectorAll) {
+            node.querySelectorAll("img").forEach(proxyImage);
+          }
+        });
       });
     });
-  });
 
-  if (document.body) {
-    observer.observe(document.body, { childList: true, subtree: true });
+    if (document.body) {
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+    
+    // 延迟再执行一次，确保动态加载的图片也被处理
+    setTimeout(() => {
+      document.querySelectorAll("img").forEach(proxyImage);
+    }, 1000);
+  }
+
+  // DOM 准备好后立即执行
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initProxy);
+  } else {
+    initProxy();
   }
 }
 
