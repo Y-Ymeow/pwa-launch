@@ -67,10 +67,12 @@ pub fn run() {
                 .body(ADAPT_JS.as_bytes().to_vec())
                 .expect("Failed to build response")
         })
-        .register_uri_scheme_protocol("fetch", |_app, request| {
+        .register_uri_scheme_protocol("fetch", |app, request| {
             // Fetch 协议：fetch://example.com/path -> 代理 HTTP 请求
             // 比 invoke 快，不需要 postMessage 桥接
-            match commands::fetch_protocol::handle_fetch_request(&request) {
+            // 从 app state 获取 CookieStore
+            let cookie_store = app.state::<models::CookieStore>();
+            match commands::fetch_protocol::handle_fetch_request(&request, Some(&cookie_store)) {
                 Ok(res) => res,
                 Err(e) => {
                     log::error!("[FetchProtocol] Error: {}", e);

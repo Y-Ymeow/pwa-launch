@@ -76,6 +76,24 @@ function App() {
         return;
       }
 
+      // 处理浏览器模式的 Cookies 同步
+      if (event.data?.type === "BROWSER_SYNC_COOKIES") {
+        const { domain, cookies } = event.data;
+        if (domain && cookies !== undefined) {
+          try {
+            await invoke("sync_webview_cookies", {
+              domain,
+              cookies,
+              userAgent: navigator.userAgent,
+            });
+            showMessage("success", `已同步 ${domain} 的 Cookies`);
+          } catch (error) {
+            showMessage("error", `同步 Cookies 失败: ${String(error)}`);
+          }
+        }
+        return;
+      }
+
       const iframe = Object.values(iframesRef.current).find(
         (f) => f.contentWindow === event.source,
       );

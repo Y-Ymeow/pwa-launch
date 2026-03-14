@@ -147,6 +147,39 @@ export function BrowserView({
         </p>
       </div>
 
+      {/* 同步 Cookies 按钮 */}
+      <div style={{ marginBottom: "20px" }}>
+        <button
+          onClick={async () => {
+            try {
+              const domain = new URL(browserUrl).hostname;
+              await invoke("sync_webview_cookies", {
+                domain,
+                cookies: document.cookie,
+                userAgent: navigator.userAgent,
+              });
+              showMessage("success", `已同步 ${domain} 的 Cookies`);
+            } catch (error) {
+              showMessage("error", `同步失败: ${String(error)}`);
+            }
+          }}
+          style={{
+            padding: "10px 20px",
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+            border: "none",
+            borderRadius: "8px",
+            color: "white",
+            cursor: "pointer",
+            fontSize: "14px",
+          }}
+        >
+          🍪 同步当前页面 Cookies
+        </button>
+        <p style={{ fontSize: "12px", opacity: 0.6, marginTop: "8px" }}>
+          点击此按钮将当前页面的登录状态同步到 PWA 模式
+        </p>
+      </div>
+
       {/* 历史记录 */}
       {browserHistory.length > 0 && (
         <div>

@@ -183,7 +183,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
                     font-size: 14px !important; outline: none !important; pointer-events: auto !important;
                 }
                 .address-input:focus { border-color: #667eea !important; box-shadow: 0 0 0 2px rgba(102,126,234,0.3) !important; }
-                .install-btn, .go-btn, .home-btn {
+                .install-btn, .go-btn, .home-btn, .cookie-btn {
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; border: none !important;
                     color: white !important; padding: 8px 12px !important; border-radius: 8px !important;
                     cursor: pointer !important; font-size: 13px !important; font-weight: 500 !important;
@@ -191,7 +191,8 @@ pub const INJECT_BROWSER_UI: &str = r#"
                 }
                 .go-btn { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important; }
                 .home-btn { background: rgba(255,255,255,0.15) !important; }
-                .browser-btn:hover, .install-btn:hover, .go-btn:hover, .home-btn:hover { 
+                .cookie-btn { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%) !important; }
+                .browser-btn:hover, .install-btn:hover, .go-btn:hover, .home-btn:hover, .cookie-btn:hover { 
                     transform: translateY(-1px) !important; box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important; 
                 }
                 .spacer { height: 52px !important; }
@@ -203,6 +204,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
                 <button class="browser-btn" id="__browser_refresh__" title="刷新">↻</button>
                 <input type="text" class="address-input" id="__browser_address__" placeholder="输入网址回车跳转..." />
                 <button class="go-btn" id="__browser_go__" title="跳转">GO</button>
+                <button class="cookie-btn" id="__browser_cookie__" title="同步 Cookies">🍪</button>
                 <button class="install-btn" id="__browser_install__" title="安装为应用">➕</button>
             </div>
             <div class="spacer"></div>
@@ -217,6 +219,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
         const addressInput = shadow.getElementById('__browser_address__');
         const goBtn = shadow.getElementById('__browser_go__');
         const installBtn = shadow.getElementById('__browser_install__');
+        const cookieBtn = shadow.getElementById('__browser_cookie__');
         
         addressInput.value = location.href;
         
@@ -259,6 +262,21 @@ pub const INJECT_BROWSER_UI: &str = r#"
         // 安装
         installBtn.addEventListener('click', () => {
             window.parent.postMessage({ type: 'BROWSER_INSTALL', url: location.href }, '*');
+        });
+        
+        // 同步 Cookies
+        cookieBtn.addEventListener('click', () => {
+            const cookies = document.cookie;
+            window.parent.postMessage({ 
+                type: 'BROWSER_SYNC_COOKIES', 
+                domain: location.hostname,
+                cookies: cookies 
+            }, '*');
+            // 显示提示
+            const btn = cookieBtn;
+            const originalText = btn.textContent;
+            btn.textContent = '✓';
+            setTimeout(() => { btn.textContent = originalText; }, 1500);
         });
         
         // 同步地址栏

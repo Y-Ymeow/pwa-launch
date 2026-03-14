@@ -170,6 +170,19 @@ import { injectBrowserUI, initVerifyAssist } from "./ui.js";
     // 网络
     fetch: network.fetch,
 
+    // 同步当前页面 cookies 到 Rust CookieStore
+    async syncCookies(domain) {
+      const cookies = document.cookie;
+      const targetDomain = domain || location.hostname;
+      const userAgent = navigator.userAgent;
+      
+      return await invoke('sync_webview_cookies', {
+        domain: targetDomain,
+        cookies: cookies,
+        userAgent: userAgent
+      });
+    },
+
     // 浏览器 UI 导航
     navigateTo(url) {
       // 保存当前 URL

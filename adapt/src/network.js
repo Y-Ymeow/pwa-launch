@@ -77,11 +77,17 @@ export function createNetwork(bridge) {
           : 'fetch://localhost/proxy';
         
         try {
+          // 构造 headers，自动添加 Referer（当前页面 URL）
+          const headers = { ...options.headers };
+          if (!headers['Referer'] && !headers['referer']) {
+            headers['Referer'] = location.href;
+          }
+          
           // 构造请求 body
           const proxyBody = JSON.stringify({
             target: urlStr,
             method: options.method || 'GET',
-            headers: options.headers || {},
+            headers: headers,
             body: options.body
           });
           
