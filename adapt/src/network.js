@@ -36,8 +36,24 @@ export function createNetwork(bridge) {
       }
 
       try {
-        // 检测 responseType - 从 options 或 headers 中获取
+        // 检测 responseType - 从 options、headers 或 URL 扩展名中获取
         let respType = options.responseType;
+        
+        // 检查 URL 扩展名判断是否为二进制资源
+        if (!respType) {
+          const urlLower = urlStr.toLowerCase();
+          if (urlLower.match(/\.(jpg|jpeg|png|gif|webp|bmp|ico|svg)(\?|$)/)) {
+            respType = 'blob';
+          } else if (urlLower.match(/\.(mp3|wav|ogg|flac|aac|m4a)(\?|$)/)) {
+            respType = 'blob';
+          } else if (urlLower.match(/\.(mp4|webm|avi|mov|mkv)(\?|$)/)) {
+            respType = 'blob';
+          } else if (urlLower.match(/\.(pdf|zip|rar|7z|tar|gz)(\?|$)/)) {
+            respType = 'blob';
+          }
+        }
+        
+        // 检查 Accept header
         if (!respType && options.headers) {
           const acceptHeader = options.headers['Accept'] || options.headers['accept'];
           if (acceptHeader) {
