@@ -40,27 +40,27 @@ class FullscreenChromeClient(
         fun onActivityResult(result: ActivityResult?)
     }
 
-    private var permissionLauncher: ActivityResultLauncher<Array<String>>
-    private var activityLauncher: ActivityResultLauncher<Intent>
     private var permissionListener: PermissionListener? = null
     private var activityListener: ActivityResultListener? = null
 
+    // 使用 MainActivity 中已注册的 launchers
+    private val permissionLauncher: ActivityResultLauncher<Array<String>>
+        get() = mainActivity.permissionLauncher
+    private val activityLauncher: ActivityResultLauncher<Intent>
+        get() = mainActivity.activityLauncher
+
     init {
-        val permissionCallback =
-            ActivityResultCallback { isGranted: Map<String, Boolean> ->
-                if (permissionListener != null) {
-                    var granted = true
-                    for ((_, value) in isGranted) {
-                        if (!value) granted = false
-                    }
-                    permissionListener!!.onPermissionSelect(granted)
+        // 重新设置回调
+        val permissionCallback = ActivityResultCallback { isGranted: Map<String, Boolean> ->
+            if (permissionListener != null) {
+                var granted = true
+                for ((_, value) in isGranted) {
+                    if (!value) granted = false
                 }
+                permissionListener!!.onPermissionSelect(granted)
             }
-        permissionLauncher =
-            activity.registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions(), permissionCallback)
-        activityLauncher = activity.registerForActivityResult(
-            ActivityResultContracts.StartActivityForResult()
-        ) { result ->
+        }
+        val activityCallback = ActivityResultCallback { result: ActivityResult? ->
             if (activityListener != null) {
                 activityListener!!.onActivityResult(result)
             }

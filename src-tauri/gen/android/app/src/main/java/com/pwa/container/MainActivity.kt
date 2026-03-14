@@ -15,6 +15,9 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.ActivityResult
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -30,6 +33,12 @@ class MainActivity : TauriActivity() {
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var originalOrientation: Int = 0
     private var originalSystemUiVisibility: Int = 0
+    
+    // ActivityResultLaunchers - 在 onCreate 中提前注册
+    lateinit var permissionLauncher: ActivityResultLauncher<Array<String>>
+        private set
+    lateinit var activityLauncher: ActivityResultLauncher<android.content.Intent>
+        private set
 
     companion object {
         var pendingPwaUrl: String? = null
@@ -38,6 +47,16 @@ class MainActivity : TauriActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
+        
+        // 必须在 super.onCreate 之前注册 ActivityResultLaunchers
+        // 因为 super.onCreate 会触发 setWebView -> onWebViewCreate
+        permissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { _ -> }
+        activityLauncher = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { _ -> }
+        
         super.onCreate(savedInstanceState)
         
         // 启用 WebView 远程调试（允许 Chrome DevTools 连接）
