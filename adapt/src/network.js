@@ -9,6 +9,11 @@ export function createNetwork(bridge) {
     async fetch(url, options = {}) {
       const urlStr = url.toString();
 
+      // 跳过 static:// 协议的请求（让浏览器直接使用原生协议）
+      if (urlStr.startsWith("static://") || urlStr.startsWith("http://static.localhost")) {
+        return originalFetch(url, options);
+      }
+
       if (urlStr.startsWith("tauri://")) {
         const match = urlStr.match(/tauri:\/\/(.+)/);
         if (match) {
@@ -141,11 +146,16 @@ export function setupXHRProxy(tauriBridge) {
           }
 
           try {
+            // 根据 XHR 的 responseType 设置 proxy_fetch 的 response_type
+            const respType = xhr.responseType;
+            const proxyResponseType = (respType === "arraybuffer" || respType === "blob") ? respType : "text";
+            
             const result = await tauriBridge.invoke("proxy_fetch", {
               url: requestUrl,
               method: requestMethod,
               headers: requestHeaders,
               body: requestBody,
+              responseType: proxyResponseType,
             });
 
             const responseData = result.data || result;
@@ -159,6 +169,21 @@ export function setupXHRProxy(tauriBridge) {
                 responseValue = JSON.parse(responseData.body);
               } catch (e) {
                 responseValue = responseData.body;
+              }
+            } else if (responseType === "arraybuffer" || responseType === "blob") {
+              // 将 base64 转换为 ArrayBuffer
+              const base64 = responseData.body;
+              const binary = atob(base64);
+              const bytes = new Uint8Array(binary.length);
+              for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+              }
+              if (responseType === "arraybuffer") {
+                responseValue = bytes.buffer;
+              } else {
+                responseValue = new Blob([bytes], { 
+                  type: responseData.headers["content-type"] || "application/octet-stream" 
+                });
               }
             }
 
