@@ -31,7 +31,7 @@ export function createNetwork(bridge) {
         urlStr.startsWith("static://") ||
         urlStr.startsWith("http://static.localhost")
       ) {
-        return originalFetch(url, options);
+        return originalFetch(urlStr, options);
       }
 
       if (urlStr.startsWith("tauri://")) {

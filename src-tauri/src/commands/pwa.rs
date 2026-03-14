@@ -130,6 +130,9 @@ pub fn launch_app(
         let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
         let user_data_dir = get_app_data_dir(&app_id, &app_data_dir);
 
+        // 编译时嵌入 adapt.min.js 内容
+        const ADAPT_JS: &str = include_str!("../../../adapt.min.js");
+
         let webview_builder = tauri::webview::WebviewBuilder::new(
             format!("{}_webview", window_id),
             tauri::WebviewUrl::External(
@@ -139,7 +142,8 @@ pub fn launch_app(
             ),
         )
         .data_directory(user_data_dir)
-        .devtools(true);
+        .devtools(true)
+        .initialization_script(ADAPT_JS);
 
         window
             .add_child(
