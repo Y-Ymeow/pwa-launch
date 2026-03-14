@@ -89,9 +89,31 @@ const BROWSER_UI_JS: &str = r#"
 // 浏览器 UI 注入脚本 - 通过 eval 注入
 pub const INJECT_BROWSER_UI: &str = r#"
 (function() {
+    // 检查 UI 是否已存在且用户未在输入
+    function shouldInject() {
+        const host = document.getElementById('__browser_ui_host__');
+        if (!host) return true;
+        
+        // 检查用户是否正在输入
+        const shadow = host.shadowRoot;
+        if (shadow) {
+            const addressInput = shadow.getElementById('__browser_address__');
+            if (addressInput && (addressInput === document.activeElement || addressInput.matches(':focus'))) {
+                return false; // 用户正在输入，不重新注入
+            }
+        }
+        return false; // UI 已存在，不需要重新注入
+    }
+    
     // 每次页面加载都尝试注入
     function injectUI() {
-        if (document.getElementById('__browser_ui_host__')) return;
+        if (!shouldInject()) return;
+        
+        // 如果已存在，先移除
+        const existingHost = document.getElementById('__browser_ui_host__');
+        if (existingHost) {
+            existingHost.remove();
+        }
         
         const host = document.createElement('div');
         host.id = '__browser_ui_host__';
@@ -111,7 +133,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
                 .browser-btn {
                     background: rgba(255,255,255,0.1) !important; border: none !important; color: white !important;
                     width: 36px !important; height: 36px !important; border-radius: 8px !important;
-                    cursor: pointer !important; font-size: 18px !important; display: flex !important;
+                    cursor: pointer !important; font-size: 16px !important; display: flex !important;
                     align-items: center !important; justify-content: center !important; transition: all 0.2s !important;
                     pointer-events: auto !important;
                 }
@@ -122,20 +144,27 @@ pub const INJECT_BROWSER_UI: &str = r#"
                     font-size: 14px !important; outline: none !important; pointer-events: auto !important;
                 }
                 .address-input:focus { border-color: #667eea !important; box-shadow: 0 0 0 2px rgba(102,126,234,0.3) !important; }
-                .install-btn {
+                .install-btn, .go-btn, .home-btn {
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; border: none !important;
-                    color: white !important; padding: 8px 16px !important; border-radius: 8px !important;
+                    color: white !important; padding: 8px 12px !important; border-radius: 8px !important;
                     cursor: pointer !important; font-size: 13px !important; font-weight: 500 !important;
                     white-space: nowrap !important; pointer-events: auto !important; transition: all 0.2s !important;
                 }
-                .install-btn:hover { transform: translateY(-1px) !important; box-shadow: 0 4px 12px rgba(102,126,234,0.4) !important; }
+                .go-btn { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important; }
+                .home-btn { background: rgba(255,255,255,0.15) !important; }
+                .browser-btn:hover, .install-btn:hover, .go-btn:hover, .home-btn:hover { 
+                    transform: translateY(-1px) !important; box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important; 
+                }
                 .spacer { height: 52px !important; }
             </style>
             <div class="browser-bar">
-                <button class="browser-btn" id="__browser_back__" title="返回">←</button>
+                <button class="browser-btn" id="__browser_back__" title="后退">←</button>
+                <button class="browser-btn" id="__browser_forward__" title="前进">→</button>
+                <button class="home-btn" id="__browser_home__" title="返回主页">🏠</button>
                 <button class="browser-btn" id="__browser_refresh__" title="刷新">↻</button>
-                <input type="text" class="address-input" id="__browser_address__" placeholder="输入网址..." />
-                <button class="install-btn" id="__browser_install__">➕ 安装</button>
+                <input type="text" class="address-input" id="__browser_address__" placeholder="输入网址回车跳转..." />
+                <button class="go-btn" id="__browser_go__" title="跳转">GO</button>
+                <button class="install-btn" id="__browser_install__" title="安装为应用">➕</button>
             </div>
             <div class="spacer"></div>
         `;
@@ -143,33 +172,66 @@ pub const INJECT_BROWSER_UI: &str = r#"
         document.documentElement.appendChild(host);
         
         const backBtn = shadow.getElementById('__browser_back__');
+        const forwardBtn = shadow.getElementById('__browser_forward__');
+        const homeBtn = shadow.getElementById('__browser_home__');
         const refreshBtn = shadow.getElementById('__browser_refresh__');
         const addressInput = shadow.getElementById('__browser_address__');
+        const goBtn = shadow.getElementById('__browser_go__');
         const installBtn = shadow.getElementById('__browser_install__');
         
         addressInput.value = location.href;
         
+        // 后退
         backBtn.addEventListener('click', () => {
+            history.back();
+        });
+        
+        // 前进
+        forwardBtn.addEventListener('click', () => {
+            history.forward();
+        });
+        
+        // 返回主页
+        homeBtn.addEventListener('click', () => {
             window.parent.postMessage({ type: 'BROWSER_GO_BACK' }, '*');
         });
         
+        // 刷新
         refreshBtn.addEventListener('click', () => location.reload());
         
+        // 地址栏回车跳转
         addressInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
-                let url = addressInput.value.trim();
-                if (!url.startsWith('http')) url = 'https://' + url;
+                const url = addressInput.value.trim();
+                if (url) {
+                    window.parent.postMessage({ type: 'BROWSER_NAVIGATE', url }, '*');
+                }
+            }
+        });
+        
+        // GO 按钮跳转
+        goBtn.addEventListener('click', () => {
+            const url = addressInput.value.trim();
+            if (url) {
                 window.parent.postMessage({ type: 'BROWSER_NAVIGATE', url }, '*');
             }
         });
         
+        // 安装
         installBtn.addEventListener('click', () => {
             window.parent.postMessage({ type: 'BROWSER_INSTALL', url: location.href }, '*');
         });
         
-        setInterval(() => {
-            if (addressInput.value !== location.href) addressInput.value = location.href;
-        }, 1000);
+        // 同步地址栏
+        const syncAddress = () => {
+            if (addressInput !== document.activeElement) {
+                addressInput.value = location.href;
+            }
+        };
+        
+        // 页面导航时同步地址
+        window.addEventListener('popstate', syncAddress);
+        setInterval(syncAddress, 2000);
         
         console.log('[Browser UI] Injected');
     }
@@ -177,14 +239,13 @@ pub const INJECT_BROWSER_UI: &str = r#"
     // 拦截所有链接点击，在当前窗口打开
     document.addEventListener('click', (e) => {
         const link = e.target.closest('a');
-        if (link && link.href && !link.href.startsWith('javascript:')) {
+        if (link && link.href && !link.href.startsWith('javascript:') && !link.href.startsWith('#')) {
             e.preventDefault();
             window.location.href = link.href;
         }
     }, true);
     
     // 拦截 window.open
-    const originalOpen = window.open;
     window.open = function(url, target, features) {
         if (url) {
             window.location.href = url;
@@ -204,7 +265,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
     setInterval(() => {
         if (location.href !== lastUrl) {
             lastUrl = location.href;
-            setTimeout(injectUI, 500);
+            setTimeout(injectUI, 300);
         }
     }, 500);
 })();
