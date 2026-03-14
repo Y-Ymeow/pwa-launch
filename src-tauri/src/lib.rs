@@ -128,10 +128,10 @@ pub fn run() {
             }
 
             if let Some(url) = &*host {
-                window.eval(&format!(
-                    r#"window.__BASE_HOST__ = "{}";"#,
-                    url
-                ));
+                let _ = window.eval(&format!(
+                            "window.__BASE_HOST__ = {:?};",
+                            url
+                        ));
             }
 
         })

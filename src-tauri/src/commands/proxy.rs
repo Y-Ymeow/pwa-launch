@@ -159,7 +159,7 @@ pub async fn proxy_fetch(
         .collect();
 
     // 根据 Content-Type 决定如何处理响应体
-    let content_type = response_headers.get("content-type")
+    let _content_type = response_headers.get("content-type")
         .map(|s| s.to_lowercase())
         .unwrap_or_default();
     

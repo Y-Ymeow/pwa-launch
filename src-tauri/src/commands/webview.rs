@@ -232,7 +232,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
         
         // 返回主页 - 使用 navigate_to_url 命令
         homeBtn.addEventListener('click', () => {
-            window.location.href = 'tauri://localhost';
+            window.location.href = window.__BASE_HOST__ ?? 'tauri://localhost';
         });
         
         // 刷新
@@ -359,7 +359,7 @@ pub async fn reinject_browser_ui(
 pub async fn check_browser_ui(
     window: WebviewWindow,
 ) -> Result<CommandResponse<bool>, String> {
-    let result = window.eval(r#"!!document.getElementById('__browser_ui_host__')"#)
+    let _result = window.eval(r#"!!document.getElementById('__browser_ui_host__')"#)
         .map_err(|e| format!("检查失败: {:?}", e))?;
     
     // eval 返回的是 ()，我们需要再次查询

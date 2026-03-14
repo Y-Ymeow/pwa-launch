@@ -146,7 +146,7 @@ pub fn handle_resource_request(
     
     // 清理请求路径：如果是带上下文标记的路径，去掉标记部分
     let marker = format!("/{}", ctx_str);
-    let mut final_path = if uri_path.starts_with(&marker) {
+    let final_path = if uri_path.starts_with(&marker) {
         &uri_path[marker.len()..]
     } else {
         uri_path
