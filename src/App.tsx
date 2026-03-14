@@ -80,20 +80,20 @@ function App() {
       if (!iframe) return;
 
       if (event.data?.type === "ADAPT_INVOKE") {
-        const { id, cmd, payload } = event.data;
+        const { cmd, payload } = event.data;
         try {
           const result = await invoke(cmd, payload);
           event.source?.postMessage(
             {
-              type: "ADAPT_RESPONSE",
-              id,
+              type: "ADAPT_RESULT",
+              cmd,
               result: JSON.parse(JSON.stringify(result)),
             },
             "*",
           );
         } catch (error) {
           event.source?.postMessage(
-            { type: "ADAPT_RESPONSE", id, error: String(error) },
+            { type: "ADAPT_RESULT", cmd, error: String(error) },
             "*",
           );
         }

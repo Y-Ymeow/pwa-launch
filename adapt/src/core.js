@@ -64,38 +64,36 @@ export function createBridge() {
     },
 
     async invoke(cmd, payload = {}) {
-      if (window.__TAURI_INTERNALS__) {
-        return window.__TAURI_INTERNALS__.invoke(cmd, payload);
-      }
-
+      // 直接使用父窗口的 Tauri 能力
       return new Promise((resolve, reject) => {
-        const id = generateId();
-        const timeout = setTimeout(() => {
-          this._pending.delete(id);
-          reject(new Error("Invoke timeout"));
-        }, 30000);
-
-        this._pending.set(id, { resolve, reject, timeout });
-
         window.parent.postMessage(
-          { type: "ADAPT_INVOKE", id, cmd, payload },
+          { type: "ADAPT_INVOKE", cmd, payload },
           "*",
         );
+        
+        // 简单的 one-time 监听
+        const handler = (e) => {
+          if (e.data?.type === "ADAPT_RESULT" && e.data.cmd === cmd) {
+            window.removeEventListener("message", handler);
+            if (e.data.error) {
+              reject(new Error(e.data.error));
+            } else {
+              resolve(e.data.result);
+            }
+          }
+        };
+        window.addEventListener("message", handler);
+        
+        // 30秒超时
+        setTimeout(() => {
+          window.removeEventListener("message", handler);
+          reject(new Error("Invoke timeout"));
+        }, 30000);
       });
     },
 
     _handleResponse(data) {
-      const { id, result, error } = data;
-      const pending = this._pending.get(id);
-      if (pending) {
-        clearTimeout(pending.timeout);
-        this._pending.delete(id);
-        if (error) {
-          pending.reject(new Error(error));
-        } else {
-          pending.resolve(result);
-        }
-      }
+      // 简化后不再需要此方法
     },
   };
 
