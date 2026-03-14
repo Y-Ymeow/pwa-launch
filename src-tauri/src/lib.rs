@@ -5,7 +5,7 @@ pub mod models;
 pub mod utils;
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use tauri_plugin_fs::init as fs_plugin;
 use tauri_plugin_http::init as http_plugin;
@@ -31,6 +31,8 @@ pub fn run() {
     }
 
     let mut builder = tauri::Builder::default();
+    let host = Arc::new(Mutex::new(None::<String>));
+    let host_clone = host.clone();
     
     // 非 Android 平台使用 tauri_plugin_log
     #[cfg(not(target_os = "android"))]
@@ -118,8 +120,20 @@ pub fn run() {
 
             Ok(())
         })
-        .on_page_load(|window, playround| {
-            log::info!("[Page Url] {}", playround.url())
+        .on_page_load(move |window, payload| {
+            let mut host = host_clone.lock().unwrap();
+
+            if host.is_none() {
+                *host = Some(payload.url().to_string());
+            }
+
+            if let Some(url) = &*host {
+                window.eval(&format!(
+                    r#"window.__BASE_HOST__ = "{}";"#,
+                    url
+                ));
+            }
+
         })
         .invoke_handler(tauri::generate_handler![
             commands::install_pwa,

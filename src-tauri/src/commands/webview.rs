@@ -232,11 +232,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
         
         // 返回主页 - 使用 navigate_to_url 命令
         homeBtn.addEventListener('click', () => {
-            if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) {
-                window.__TAURI_INTERNALS__.invoke('navigate_to_url', { url: 'http://localhost:1420' });
-            } else {
-                window.location.href = 'http://localhost:1420';
-            }
+            window.location.href = 'tauri://localhost';
         });
         
         // 刷新
