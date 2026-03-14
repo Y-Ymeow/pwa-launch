@@ -328,18 +328,40 @@ function App() {
 
             {/* 悬浮切换按钮 */}
             <div className="floating-switcher right">
-              <div className="switcher-panel">
+              <button 
+                className="fab" 
+                onClick={() => {
+                  const panel = document.querySelector('.switcher-panel') as HTMLElement;
+                  if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+                }}
+              >
+                <span className="fab-indicator"></span>
+                <span>{runningPwas.length}</span>
+              </button>
+              <div className="switcher-panel" style={{ display: 'block' }}>
                 <div className="panel-header">
                   <span>运行中的应用 ({runningPwas.length})</span>
-                  <button
-                    className="btn-manage"
-                    onClick={() => {
-                      setViewMode('apps');
-                      setActivePwaId(null);
-                    }}
-                  >
-                    📋 管理
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      className="btn-manage"
+                      onClick={() => {
+                        setViewMode('apps');
+                        setActivePwaId(null);
+                      }}
+                    >
+                      📋 管理
+                    </button>
+                    <button
+                      className="btn-close"
+                      onClick={() => {
+                        const panel = document.querySelector('.switcher-panel') as HTMLElement;
+                        if (panel) panel.style.display = 'none';
+                      }}
+                      title="关闭"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
                 <div className="running-list">
                   {runningPwas.map((pwa) => (
