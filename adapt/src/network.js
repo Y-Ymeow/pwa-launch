@@ -6,8 +6,25 @@ import { originalFetch, OriginalXHR } from "./core.js";
 
 export function createNetwork(bridge) {
   return {
-    async fetch(url, options = {}) {
-      const urlStr = url.toString();
+    async fetch(input, init = {}) {
+      // 处理 input 可能是 Request 对象的情况
+      let urlStr;
+      let options = { ...init };
+      
+      if (input instanceof Request) {
+        urlStr = input.url;
+        // 从 Request 对象中提取选项
+        options.method = init.method || input.method;
+        options.headers = init.headers || {};
+        // 复制 Request 的 headers
+        input.headers.forEach((value, key) => {
+          if (!options.headers[key]) {
+            options.headers[key] = value;
+          }
+        });
+      } else {
+        urlStr = input.toString();
+      }
 
       // 跳过 static:// 协议的请求（让浏览器直接使用原生协议）
       if (
