@@ -42,6 +42,9 @@ function App() {
     text: string;
   } | null>(null);
 
+  // 悬浮面板显示状态
+  const [showSwitcherPanel, setShowSwitcherPanel] = useState(true);
+
   const iframesRef = useRef<Record<string, HTMLIFrameElement>>({});
 
   // 加载应用列表
@@ -304,11 +307,11 @@ function App() {
         )}
 
         {/* PWA iframe 容器 - 使用 CSS 隐藏而不是卸载，保持后台运行 */}
-        <div 
-          className="iframe-container" 
-          style={{ 
+        <div
+          className="iframe-container"
+          style={{
             display: viewMode === "pwa" ? "block" : "none",
-            visibility: viewMode === "pwa" ? "visible" : "hidden"
+            visibility: viewMode === "pwa" ? "visible" : "hidden",
           }}
         >
           {runningPwas.map((pwa) => (
@@ -316,7 +319,7 @@ function App() {
               key={pwa.appId}
               className={`iframe-wrapper ${activePwaId === pwa.appId ? "active" : ""}`}
               style={{
-                display: activePwaId === pwa.appId ? "block" : "none"
+                display: activePwaId === pwa.appId ? "block" : "none",
               }}
             >
               {restoringPwa === pwa.appId && (
@@ -340,23 +343,22 @@ function App() {
             </div>
           ))}
 
-            {/* 悬浮切换按钮 */}
-            <div className="floating-switcher right">
+          {/* 悬浮切换按钮 */}
+          <div className="floating-switcher right">
+            {/* 按钮：面板隐藏时显示 */}
+            {!showSwitcherPanel && (
               <button
                 className="fab"
-                onClick={() => {
-                  const panel = document.querySelector(
-                    ".switcher-panel",
-                  ) as HTMLElement;
-                  if (panel)
-                    panel.style.display =
-                      panel.style.display === "none" ? "block" : "none";
-                }}
+                onClick={() => setShowSwitcherPanel(true)}
+                title="显示运行中的应用"
               >
                 <span className="fab-indicator"></span>
                 <span>{runningPwas.length}</span>
               </button>
-              <div className="switcher-panel" style={{ display: "block" }}>
+            )}
+            {/* 面板 */}
+            {showSwitcherPanel && (
+              <div className="switcher-panel">
                 <div className="panel-header">
                   <span>运行中的应用 ({runningPwas.length})</span>
                   <div style={{ display: "flex", gap: "8px" }}>
@@ -365,18 +367,14 @@ function App() {
                       onClick={() => {
                         setViewMode("apps");
                         setActivePwaId(null);
+                        setShowSwitcherPanel(false);
                       }}
                     >
                       📋 管理
                     </button>
                     <button
                       className="btn-close"
-                      onClick={() => {
-                        const panel = document.querySelector(
-                          ".switcher-panel",
-                        ) as HTMLElement;
-                        if (panel) panel.style.display = "none";
-                      }}
+                      onClick={() => setShowSwitcherPanel(false)}
                       title="关闭"
                     >
                       ✕
@@ -414,6 +412,7 @@ function App() {
                       </div>
                       <div className="item-actions">
                         <button
+                          className="btn-refresh-item"
                           onClick={(e) => {
                             e.stopPropagation();
                             refreshPwa(pwa.appId);
@@ -423,6 +422,7 @@ function App() {
                           ↻
                         </button>
                         <button
+                          className="btn-close-item"
                           onClick={(e) => {
                             e.stopPropagation();
                             closePwa(pwa.appId);
@@ -464,8 +464,9 @@ function App() {
                   ))}
                 </div>
               </div>
-            </div>
+            )}
           </div>
+        </div>
 
         {viewMode === "apps" && (
           <AppList

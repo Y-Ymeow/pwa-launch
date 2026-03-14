@@ -1,5 +1,5 @@
-import { useRef, memo } from 'react';
-import type { RunningPwa, PwaSnapshot, AppInfo } from './types';
+import { useRef, memo } from "react";
+import type { RunningPwa, PwaSnapshot, AppInfo } from "./types";
 
 interface PwaPlayerProps {
   runningPwas: RunningPwa[];
@@ -10,7 +10,7 @@ interface PwaPlayerProps {
   getProxiedUrl: (url: string) => string;
   handleIframeLoad: (appId: string) => void;
   setActivePwaId: (id: string | null) => void;
-  setViewMode: (mode: 'apps' | 'browser' | 'pwa') => void;
+  setViewMode: (mode: "apps" | "browser" | "pwa") => void;
   setRunningPwas: React.Dispatch<React.SetStateAction<RunningPwa[]>>;
   setShowSwitcher: (show: boolean) => void;
   closePwa: (appId: string) => void;
@@ -66,10 +66,7 @@ function PwaPlayerComponent({
 
       {/* 悬浮切换面板 */}
       <div className="floating-switcher right">
-        <button
-          className="fab"
-          onClick={() => setShowSwitcher(true)}
-        >
+        <button className="fab" onClick={() => setShowSwitcher(true)}>
           <span>{runningPwas.length}</span>
         </button>
 
@@ -80,7 +77,7 @@ function PwaPlayerComponent({
             <button
               className="btn-manage"
               onClick={() => {
-                setViewMode('apps');
+                setViewMode("apps");
                 setActivePwaId(null);
               }}
             >
@@ -119,8 +116,8 @@ function PwaPlayerComponent({
                   </span>
                 </div>
                 <div className="item-actions">
-                  <button
-                    className="btn-refresh-item"
+                  <div
+                    id={"btn-refresh-item"}
                     onClick={(e) => {
                       e.stopPropagation();
                       refreshPwa(pwa.appId);
@@ -128,7 +125,7 @@ function PwaPlayerComponent({
                     title="刷新页面"
                   >
                     ↻
-                  </button>
+                  </div>
                   <button
                     className="btn-close-item"
                     onClick={(e) => {
