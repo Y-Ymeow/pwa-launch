@@ -138,7 +138,8 @@ pub fn launch_app(
                     .map_err(|e: url::ParseError| e.to_string())?,
             ),
         )
-        .data_directory(user_data_dir);
+        .data_directory(user_data_dir)
+        .devtools(true);
 
         window
             .add_child(

@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.view.WindowManager
+import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -29,6 +30,9 @@ class MainActivity : TauriActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        
+        // 启用 WebView 远程调试（允许 Chrome DevTools 连接）
+        WebView.setWebContentsDebuggingEnabled(true)
         
         // 刘海屏适配：允许内容延伸到刘海区域
         setupEdgeToEdgeDisplay()
