@@ -36,18 +36,29 @@ export function createNetwork(bridge) {
       }
 
       try {
+        // 检测 responseType - 从 options 或 headers 中获取
+        let respType = options.responseType;
+        if (!respType && options.headers) {
+          const acceptHeader = options.headers['Accept'] || options.headers['accept'];
+          if (acceptHeader) {
+            if (acceptHeader.includes('image/') || acceptHeader.includes('audio/') || acceptHeader.includes('video/') || acceptHeader.includes('application/octet-stream')) {
+              respType = 'blob';
+            }
+          }
+        }
+        respType = respType || "text";
+        
         const result = await bridge.invoke("proxy_fetch", {
           url: urlStr,
           method: options.method || "GET",
           headers: options.headers || {},
           body: options.body || null,
-          responseType: options.responseType || "text",
+          responseType: respType,
         });
 
         const responseData = result.data || result;
 
         let body = responseData.body;
-        const respType = options.responseType || "text";
 
         if (
           responseData.is_base64 ||
