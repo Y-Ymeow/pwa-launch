@@ -9,8 +9,11 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
+import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.widget.FrameLayout
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -21,6 +24,12 @@ class MainActivity : TauriActivity() {
 
     private var pwaLaunchReceiver: BroadcastReceiver? = null
     private val handler = Handler(Looper.getMainLooper())
+    
+    // 视频全屏相关
+    private var customView: View? = null
+    private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+    private var originalOrientation: Int = 0
+    private var originalSystemUiVisibility: Int = 0
 
     companion object {
         var pendingPwaUrl: String? = null
@@ -36,6 +45,11 @@ class MainActivity : TauriActivity() {
         
         // 刘海屏适配：允许内容延伸到刘海区域
         setupEdgeToEdgeDisplay()
+        
+        // 延迟设置支持全屏的 WebChromeClient
+        handler.postDelayed({
+            setupFullscreenChromeClient()
+        }, 500)
 
         // 注册广播接收器
         pwaLaunchReceiver = object : BroadcastReceiver() {
@@ -87,6 +101,16 @@ class MainActivity : TauriActivity() {
     override fun onDestroy() {
         super.onDestroy()
         pwaLaunchReceiver?.let { unregisterReceiver(it) }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        // 如果处于视频全屏模式，先退出全屏
+        if (isVideoFullscreen()) {
+            exitVideoFullscreen()
+            return
+        }
+        super.onBackPressed()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -144,6 +168,85 @@ class MainActivity : TauriActivity() {
                 bottom = insets.bottom
             )
             WindowInsetsCompat.CONSUMED
+        }
+    }
+    
+    /**
+     * 视频全屏支持 - 进入全屏
+     */
+    fun enterVideoFullscreen(view: View, callback: WebChromeClient.CustomViewCallback) {
+        if (customView != null) {
+            callback.onCustomViewHidden()
+            return
+        }
+        
+        // 保存原始状态
+        customView = view
+        customViewCallback = callback
+        originalOrientation = requestedOrientation
+        originalSystemUiVisibility = window.decorView.systemUiVisibility
+        
+        // 隐藏状态栏和导航栏，进入沉浸式全屏
+        window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        )
+        
+        // 添加到内容视图
+        val decor = window.decorView as FrameLayout
+        decor.addView(view, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ))
+        
+        // 强制横屏（可选，根据需要）
+        // requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+    }
+    
+    /**
+     * 视频全屏支持 - 退出全屏
+     */
+    fun exitVideoFullscreen() {
+        if (customView == null) return
+        
+        // 恢复系统 UI
+        window.decorView.systemUiVisibility = originalSystemUiVisibility
+        
+        // 从视图中移除
+        val decor = window.decorView as FrameLayout
+        decor.removeView(customView)
+        
+        // 恢复原始方向
+        // requestedOrientation = originalOrientation
+        
+        // 通知 WebView
+        customViewCallback?.onCustomViewHidden()
+        
+        customView = null
+        customViewCallback = null
+    }
+    
+    /**
+     * 检查当前是否处于视频全屏模式
+     */
+    fun isVideoFullscreen(): Boolean = customView != null
+    
+    /**
+     * 设置支持视频全屏的 WebChromeClient
+     */
+    private fun setupFullscreenChromeClient() {
+        try {
+            val webView = findViewById<WebView>(resources.getIdentifier("tauri_webview", "id", packageName))
+            webView?.let {
+                val chromeClient = FullscreenChromeClient(this as WryActivity, this)
+                it.webChromeClient = chromeClient
+                android.util.Log.d("MainActivity", "FullscreenChromeClient 设置成功")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "设置 FullscreenChromeClient 失败: ${e.message}")
         }
     }
 }
