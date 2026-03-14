@@ -46,11 +46,14 @@ const BROWSER_UI_JS: &str = r#"
       .install-btn:hover { transform: translateY(-1px) !important; box-shadow: 0 4px 12px rgba(102,126,234,0.4) !important; }
       .spacer { height: 52px !important; } 
     </style>
-    <div class="browser-bar">
-      <button class="browser-btn" id="__browser_back__" title="返回">←</button>
+    <div class="browser-bar" data-browser-ui="true">
+      <button class="browser-btn" id="__browser_back__" title="后退">←</button>
+      <button class="browser-btn" id="__browser_forward__" title="前进">→</button>
+      <button class="browser-btn" id="__browser_home__" title="返回主页" style="font-size: 14px;">🏠</button>
       <button class="browser-btn" id="__browser_refresh__" title="刷新">↻</button>
-      <input type="text" class="address-input" id="__browser_address__" placeholder="输入网址..." />
-      <button class="install-btn" id="__browser_install__">➕ 安装</button>
+      <input type="text" class="address-input" id="__browser_address__" placeholder="输入网址回车跳转..." />
+      <button class="browser-btn" id="__browser_go__" title="跳转" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important; font-size: 12px; font-weight: bold;">GO</button>
+      <button class="install-btn" id="__browser_install__" title="安装为应用">➕</button>
     </div>
     <div class="spacer"></div>
   `;
@@ -94,6 +97,10 @@ pub const INJECT_BROWSER_UI: &str = r#"
         // 在 iframe 中且不是浏览器模式，不注入
         return;
     }
+
+    if (window.location.href.indexOf('localhost') !== -1) {
+        return;
+    }
     
     // 检查 UI 是否已存在且用户未在输入
     function shouldInject() {
@@ -122,28 +129,23 @@ pub const INJECT_BROWSER_UI: &str = r#"
         }
         
         // 给 body 添加 padding-top，避免内容被遮挡
-        document.body.style.paddingTop = '52px';
+        // document.body.style.paddingTop = '52px';
         document.documentElement.style.paddingTop = '52px';
         
         // 修复浮动/固定定位的头部元素（排除 browser-bar 自身）
         const style = document.createElement('style');
         style.id = '__browser_ui_fix_style__';
         style.textContent = `
-            /* 给固定/浮动定位的头部元素添加顶部间距（排除 browser-ui） */
-            :not(#__browser_ui_host__):not([id^="__browser"]) *[style*="position: fixed"][style*="top: 0"],
-            :not(#__browser_ui_host__):not([id^="__browser"]) *[style*="position:fixed"][style*="top:0"],
-            header:not(#__browser_ui_host__),
-            .header:not([id^="__browser"]),
-            #header:not([id^="__browser"]),
-            nav:not(#__browser_ui_host__):not([id^="__browser"]),
-            .nav:not([id^="__browser"])
-            {
-                top: 52px !important;
-            }
-            
-            /* 处理 sticky 定位（排除 browser-ui） */
-            :not(#__browser_ui_host__):not([id^="__browser"]) *[style*="position: sticky"][style*="top: 0"],
-            :not(#__browser_ui_host__):not([id^="__browser"]) *[style*="position:sticky"][style*="top:0"]
+            /* 给固定/浮动定位的头部元素添加顶部间距 */
+            body *[style*="position: fixed"][style*="top: 0"]:not([data-browser-ui]),
+            body *[style*="position:fixed"][style*="top:0"]:not([data-browser-ui]),
+            body *[style*="position: sticky"][style*="top: 0"]:not([data-browser-ui]),
+            body *[style*="position:sticky"][style*="top:0"]:not([data-browser-ui]),
+            body header:not([data-browser-ui]),
+            body .header:not([data-browser-ui]),
+            body #header:not([data-browser-ui]),
+            body nav:not([data-browser-ui]),
+            body .nav:not([data-browser-ui])
             {
                 top: 52px !important;
             }
@@ -154,7 +156,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
         
         const host = document.createElement('div');
         host.id = '__browser_ui_host__';
-        host.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;pointer-events:none;';
+        host.style.cssText = 'position:fixed;top:0 !important;left:0;right:0;z-index:2147483647;pointer-events:none;';
         
         const shadow = host.attachShadow({ mode: 'open' });
         
@@ -228,9 +230,13 @@ pub const INJECT_BROWSER_UI: &str = r#"
             history.forward();
         });
         
-        // 返回主页 - 发送消息给宿主
+        // 返回主页 - 使用 navigate_to_url 命令
         homeBtn.addEventListener('click', () => {
-            window.parent.postMessage({ type: 'BROWSER_GO_HOME' }, '*');
+            if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) {
+                window.__TAURI_INTERNALS__.invoke('navigate_to_url', { url: 'http://localhost:1420' });
+            } else {
+                window.location.href = 'http://localhost:1420';
+            }
         });
         
         // 刷新

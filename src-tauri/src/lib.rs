@@ -118,6 +118,9 @@ pub fn run() {
 
             Ok(())
         })
+        .on_page_load(|window, playround| {
+            log::info!("[Page Url] {}", playround.url())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::install_pwa,
             commands::uninstall_pwa,
