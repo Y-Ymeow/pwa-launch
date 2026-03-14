@@ -226,6 +226,21 @@ import { injectBrowserUI, initVerifyAssist } from "./ui.js";
     // 劫持 LocalStorage
     hackLocalStorage(bridge);
 
+    // 劫持 window.open 走浏览器模式
+    const originalOpen = window.open;
+    window.open = function(url, target, features) {
+      if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+        console.log('[PWA Adapt] Hijacking window.open:', url);
+        tauriBridge.webview.open({ url }).catch(e => {
+          console.error('[PWA Adapt] webview.open failed:', e);
+          // 失败时回退到原生 open
+          return originalOpen.call(window, url, target, features);
+        });
+        return null; // window.open 通常返回新窗口引用，但这里不返回
+      }
+      return originalOpen.call(window, url, target, features);
+    };
+
     // 启动图片代理
     setupImageProxy(tauriBridge);
 
