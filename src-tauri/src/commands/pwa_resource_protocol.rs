@@ -170,15 +170,35 @@ pub fn handle_resource_request(
         cache_dir.join(final_path.trim_start_matches('/'))
     };
 
-    // 4. 加载资源
-    let (content, remote_mime, status) = if should_cache && local_file_path.exists() && local_file_path.is_file() {
-        match fs::read(&local_file_path) {
-            Ok(c) => (c, None, 200),
-            Err(_) => fetch_from_network(&original_url, should_cache, &local_file_path)?
-        }
-    } else {
-        fetch_from_network(&original_url, should_cache, &local_file_path)?
-    };
+    // 4. 加载资源 - 优先从网络获取，失败时使用缓存
+    let (content, remote_mime, status) = 
+        match fetch_from_network(&original_url, should_cache, &local_file_path) {
+            Ok((c, m, s)) if s == 200 => (c, m, s),
+            Ok((c, m, s)) => {
+                // 网络返回非 200，尝试使用缓存
+                if should_cache && local_file_path.exists() {
+                    log::warn!("[PWAResource] Network returned {}, trying cache", s);
+                    match fs::read(&local_file_path) {
+                        Ok(cache_content) => (cache_content, None, 200),
+                        Err(_) => (c, m, s)
+                    }
+                } else {
+                    (c, m, s)
+                }
+            }
+            Err(e) => {
+                // 网络请求失败，使用缓存
+                if should_cache && local_file_path.exists() {
+                    log::warn!("[PWAResource] Network error: {}, using cache", e);
+                    match fs::read(&local_file_path) {
+                        Ok(cache_content) => (cache_content, None, 200),
+                        Err(_) => return Err(e)
+                    }
+                } else {
+                    return Err(e);
+                }
+            }
+        };
 
     // 5. 响应并注入 Cookie 保持上下文
     let mut response = build_response(&local_file_path, content, remote_mime, status)?;
