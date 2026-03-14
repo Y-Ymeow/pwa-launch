@@ -26,7 +26,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' https: ipc: http://ipc.localhost; standard-src 'self' asset: https: static: http://static.localhost pwa-resource: adapt: http://adapt.localhost; script-src 'self' 'unsafe-inline' 'unsafe-eval' https: static: http://static.localhost pwa-resource: adapt: http://adapt.localhost; style-src 'self' 'unsafe-inline' https: static: pwa-resource:; img-src 'self' asset: https: static: http://static.localhost pwa-resource: data: blob:; media-src 'self' asset: https: static: pwa-resource: blob: http://static.localhost; connect-src 'self' asset: https: static: http://static.localhost pwa-resource: http://ipc.localhost; font-src 'self' https: static: http://static.localhost;",
+      "csp": "default-src 'self' https: http: ipc: http://ipc.localhost; standard-src 'self' asset: https: http: static: http://static.localhost pwa-resource: adapt: http://adapt.localhost; script-src 'self' 'unsafe-inline' 'unsafe-eval' https: http: static: http://static.localhost pwa-resource: adapt: http://adapt.localhost; style-src 'self' 'unsafe-inline' https: http: static: pwa-resource:; img-src 'self' asset: https: http: static: http://static.localhost pwa-resource: data: blob:; media-src 'self' asset: https: http: static: pwa-resource: blob: http://static.localhost; connect-src 'self' asset: https: http: static: http://static.localhost pwa-resource: http://ipc.localhost; font-src 'self' https: http: static: http://static.localhost;",
       "dangerousDisableAssetCspModification": true,
       "assetProtocol": {
         "enable": true,
