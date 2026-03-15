@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-audio-play"
+description = "Allows audio_play command"
+commands.allow = ["audio_play"]

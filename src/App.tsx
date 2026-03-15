@@ -94,6 +94,75 @@ function App() {
         return;
       }
 
+      // 处理 HTTP 代理请求（通过本地服务器，支持并发和流式传输）
+      if (event.data?.type === "ADAPT_PROXY_REQUEST") {
+        const { requestId, url, method, headers, body, isMedia } = event.data;
+        console.log("[App] Proxy request:", {
+          requestId,
+          url,
+          method,
+          isMedia,
+          hasHeaders: !!headers,
+          hasBody: !!body,
+        });
+        try {
+          // 把所有请求参数放在 body 里传给代理服务器
+          // 父窗口的 fetch 只设置 Content-Type，不设置自定义 headers（避免浏览器拦截）
+          const proxyBodyObj = {
+            target: url,
+            method: method || "GET",
+            headers: headers || {},
+            body: body || null,
+          };
+          console.log("[App] Proxy body:", proxyBodyObj);
+          const proxyBody = JSON.stringify(proxyBodyObj);
+
+          // 根据 isMedia 选择路由：媒体请求走 /media/proxy（禁用 gzip），普通请求走 /api/proxy
+          const proxyUrl = isMedia
+            ? "http://localhost:19315/media/proxy"
+            : "http://localhost:19315/api/proxy";
+          console.log("[App] Proxy URL:", proxyUrl);
+
+          const proxyResponse = await fetch(proxyUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              // 不在这里添加其他 headers，防止浏览器拦截
+            },
+            body: proxyBody,
+          });
+
+          const responseData = {
+            status: proxyResponse.status,
+            statusText: proxyResponse.statusText,
+            headers: Object.fromEntries(proxyResponse.headers.entries()),
+            body: await proxyResponse.text(),
+          };
+
+          event.source?.postMessage(
+            {
+              type: "ADAPT_PROXY_RESPONSE",
+              requestId,
+              success: true,
+              data: responseData,
+            },
+            "*",
+          );
+        } catch (error) {
+          console.error("[App] Proxy request failed:", error);
+          event.source?.postMessage(
+            {
+              type: "ADAPT_PROXY_RESPONSE",
+              requestId,
+              success: false,
+              error: String(error),
+            },
+            "*",
+          );
+        }
+        return;
+      }
+
       const iframe = Object.values(iframesRef.current).find(
         (f) => f.contentWindow === event.source,
       );
@@ -517,6 +586,7 @@ function App() {
         </button>
       )}
 
+      <Test />
       <footer className="footer">
         <p>
           PWA Container v0.1.0 - {runningPwas.length}/{MAX_IFRAMES} 运行中

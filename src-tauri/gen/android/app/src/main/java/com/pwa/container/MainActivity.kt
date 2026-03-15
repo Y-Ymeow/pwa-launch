@@ -39,6 +39,9 @@ class MainActivity : TauriActivity() {
         private set
     lateinit var activityLauncher: ActivityResultLauncher<android.content.Intent>
         private set
+    
+    // 本地 HTTP 代理服务器
+    private var proxyServer: ProxyServer? = null
 
     companion object {
         var pendingPwaUrl: String? = null
@@ -61,6 +64,12 @@ class MainActivity : TauriActivity() {
         
         // 启用 WebView 远程调试（允许 Chrome DevTools 连接）
         WebView.setWebContentsDebuggingEnabled(true)
+        
+        // 启动本地 HTTP 代理服务器
+        startProxyServer()
+        
+        // 初始化音频播放器
+        AudioPlayerInstance.init(this)
         
         // 刘海屏适配：允许内容延伸到刘海区域
         setupEdgeToEdgeDisplay()
@@ -115,6 +124,29 @@ class MainActivity : TauriActivity() {
     override fun onDestroy() {
         super.onDestroy()
         pwaLaunchReceiver?.let { unregisterReceiver(it) }
+        stopProxyServer()
+    }
+    
+    /**
+     * 启动本地 HTTP 代理服务器
+     */
+    private fun startProxyServer() {
+        try {
+            proxyServer = ProxyServer(ProxyServer.PORT)
+            proxyServer?.start()
+            Log.d("MainActivity", "Proxy server started on port ${ProxyServer.PORT}")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to start proxy server: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * 停止本地 HTTP 代理服务器
+     */
+    private fun stopProxyServer() {
+        proxyServer?.stop()
+        proxyServer = null
+        Log.d("MainActivity", "Proxy server stopped")
     }
 
     @Deprecated("Deprecated in Java")

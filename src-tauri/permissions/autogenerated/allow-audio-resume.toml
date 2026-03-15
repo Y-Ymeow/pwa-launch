@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-audio-resume"
+description = "Allows audio_resume command"
+commands.allow = ["audio_resume"]

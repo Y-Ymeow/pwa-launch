@@ -2,10 +2,11 @@ pub mod commands;
 pub mod db;
 pub mod models;
 pub mod utils;
+pub mod local_server;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_fs::init as fs_plugin;
 use tauri_plugin_http::init as http_plugin;
 use tauri_plugin_shell::init as shell_plugin;
@@ -54,12 +55,14 @@ pub fn run() {
         .register_uri_scheme_protocol("static", |_app, request| {
             commands::static_protocol::handle_static_request(request)
         })
-
-                .register_uri_scheme_protocol("adapt", |_app, _request| {
+        .register_uri_scheme_protocol("adapt", |_app, _request| {
             // 编译时嵌入 adapt.min.js 内容，避免运行时文件路径问题（Android 无法访问文件）
             const ADAPT_JS: &str = include_str!("../../adapt.min.js");
 
-            log::info!("[adapt] Serving adapt.min.js, size: {} bytes", ADAPT_JS.len());
+            log::info!(
+                "[adapt] Serving adapt.min.js, size: {} bytes",
+                ADAPT_JS.len()
+            );
 
             http::Response::builder()
                 .header("Content-Type", "application/javascript")
@@ -84,25 +87,50 @@ pub fn run() {
                 }
             }
         })
+        .setup(move |app| {
+            // 启动本地服务器（必须在 tokio 运行时中执行）
+            tauri::async_runtime::block_on(async move {
+                let app_data_dir = app.path().app_data_dir()?;
+                std::fs::create_dir_all(&app_data_dir)?;
+                db::init_db(&app_data_dir)?;
 
-        .setup(|app| {
-            let app_data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&app_data_dir)?;
-            db::init_db(&app_data_dir)?;
+                let db_path = app_data_dir.join("pwa_container.db");
+                let conn = rusqlite::Connection::open(&db_path)?;
+                app.manage(std::sync::Mutex::new(conn));
 
-            let db_path = app_data_dir.join("pwa_container.db");
-            let conn = rusqlite::Connection::open(&db_path)?;
-            app.manage(std::sync::Mutex::new(conn));
+                // 初始化全局状态
+                let cookie_store = Arc::new(RwLock::new(HashMap::<
+                    String,
+                    HashMap<String, HashMap<String, String>>,
+                >::new()));
+                app.manage(cookie_store.clone());
 
-            // 初始化全局状态
-            app.manage(Arc::new(RwLock::new(HashMap::<
-                String,
-                HashMap<String, HashMap<String, String>>,
-            >::new()))); // CookieStore
-            
-            app.manage(Arc::new(RwLock::new(None::<commands::ProxySettings>))); // ProxyConfig
+                let proxy_settings = Arc::new(RwLock::new(None::<commands::ProxySettings>));
+                app.manage(proxy_settings.clone());
 
-            Ok(())
+                // 启动本地 HTTP 服务器（Linux/Windows/macOS）
+                #[cfg(not(target_os = "android"))]
+                {
+                    local_server::start_local_server(cookie_store, proxy_settings).await;
+                }
+
+                // 创建主窗口
+                // dev 模式使用 Vite 端口（有热重载）
+                #[cfg(dev)]
+                let url = WebviewUrl::External("http://localhost:1420".parse().unwrap());
+                // release 模式使用打包后的前端文件
+                #[cfg(not(dev))]
+                let url = WebviewUrl::App(std::path::PathBuf::from("/"));
+
+                WebviewWindowBuilder::new(app, "main", url)
+                    .title("PWA Container")
+                    .inner_size(1200.0, 800.0)
+                    .center()
+                    .devtools(true)
+                    .build()?;
+
+                Ok(())
+            })
         })
         .on_page_load(move |window, payload| {
             let mut host = host_clone.lock().unwrap();
@@ -112,12 +140,8 @@ pub fn run() {
             }
 
             if let Some(url) = &*host {
-                let _ = window.eval(&format!(
-                            "window.__BASE_HOST__ = {:?};",
-                            url
-                        ));
+                let _ = window.eval(&format!("window.__BASE_HOST__ = {:?};", url));
             }
-
         })
         .invoke_handler(tauri::generate_handler![
             commands::install_pwa,
@@ -127,7 +151,6 @@ pub fn run() {
             commands::get_app_info,
             commands::list_running_pwas,
             commands::update_pwa,
-
             commands::close_pwa_window,
             commands::clear_data,
             commands::backup_data,
@@ -168,7 +191,17 @@ pub fn run() {
             commands::reinject_browser_ui,
             commands::check_browser_ui,
             commands::eval_js,
-
+            commands::audio_play,
+            commands::audio_pause,
+            commands::audio_resume,
+            commands::audio_stop,
+            commands::audio_set_volume,
+            commands::audio_get_state,
+            commands::audio_get_position,
+            commands::audio_get_duration,
+            commands::audio_seek,
+            commands::audio_get_current_url,
+            commands::audio_set_loop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

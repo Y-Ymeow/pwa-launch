@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-video-play"
+description = "Allows video_play command"
+commands.allow = ["video_play"]

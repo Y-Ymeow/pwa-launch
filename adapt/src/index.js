@@ -15,6 +15,11 @@ import { createFS, setupFilePicker } from "./fs.js";
 import { createStorage, hackIndexedDB, hackLocalStorage } from "./storage.js";
 import { createNetwork, setupXHRProxy, setupImageProxy } from "./network.js";
 import { injectBrowserUI, initVerifyAssist } from "./ui.js";
+import {
+  playAudio, pauseAudio, resumeAudio, stopAudio,
+  setAudioVolume, setAudioLoop, getAudioState, getAudioPosition, getAudioDuration, getAudioCurrentUrl,
+  seekAudio, setAudioProgressCallback, AdaptAudio
+} from "./audio.js";
 
 (function () {
   // 防止重复注入
@@ -121,6 +126,12 @@ import { injectBrowserUI, initVerifyAssist } from "./ui.js";
 
     // 存储
     storage,
+    
+    // 清除所有 KV 存储（所有应用）
+    async clearAllKV() {
+      const res = await bridge.invoke("kv_clear", { appId: "*" });
+      return res.success;
+    },
 
     // Cookie
     cookie: {
@@ -143,6 +154,32 @@ import { injectBrowserUI, initVerifyAssist } from "./ui.js";
       },
       async close() {
         return await bridge.invoke("navigate_back", {});
+      },
+    },
+
+    // 音频播放（绕过 WebKitGTK GStreamer）
+    audio: {
+      play: playAudio,
+      pause: pauseAudio,
+      resume: resumeAudio,
+      stop: stopAudio,
+      setVolume: setAudioVolume,
+      setLoop: setAudioLoop,
+      getState: getAudioState,
+      getPosition: getAudioPosition,
+      getDuration: getAudioDuration,
+      getCurrentUrl: getAudioCurrentUrl,
+      seek: seekAudio,
+      setProgressCallback: setAudioProgressCallback,
+      AdaptAudio: AdaptAudio,
+    },
+
+    // 视频播放（使用 MPV）- 暂未实现
+    video: {
+      play: (url) => {
+        console.warn("[PWA Adapt] Video play not implemented yet:", url);
+        // 回退到使用 audio 播放（纯音频）
+        return playAudio(url);
       },
     },
 
@@ -175,11 +212,11 @@ import { injectBrowserUI, initVerifyAssist } from "./ui.js";
       const cookies = document.cookie;
       const targetDomain = domain || location.hostname;
       const userAgent = navigator.userAgent;
-      
-      return await invoke('sync_webview_cookies', {
+
+      return await invoke("sync_webview_cookies", {
         domain: targetDomain,
         cookies: cookies,
-        userAgent: userAgent
+        userAgent: userAgent,
       });
     },
 
@@ -228,11 +265,11 @@ import { injectBrowserUI, initVerifyAssist } from "./ui.js";
 
     // 劫持 window.open 走浏览器模式
     const originalOpen = window.open;
-    window.open = function(url, target, features) {
-      if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
-        console.log('[PWA Adapt] Hijacking window.open:', url);
-        tauriBridge.webview.open({ url }).catch(e => {
-          console.error('[PWA Adapt] webview.open failed:', e);
+    window.open = function (url, target, features) {
+      if (url && (url.startsWith("http://") || url.startsWith("https://"))) {
+        console.log("[PWA Adapt] Hijacking window.open:", url);
+        tauriBridge.webview.open({ url }).catch((e) => {
+          console.error("[PWA Adapt] webview.open failed:", e);
           // 失败时回退到原生 open
           return originalOpen.call(window, url, target, features);
         });

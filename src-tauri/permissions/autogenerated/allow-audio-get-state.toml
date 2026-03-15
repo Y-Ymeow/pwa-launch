@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-audio-get-state"
+description = "Allows audio_get_state command"
+commands.allow = ["audio_get_state"]

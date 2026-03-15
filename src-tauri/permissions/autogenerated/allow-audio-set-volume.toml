@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-audio-set-volume"
+description = "Allows audio_set_volume command"
+commands.allow = ["audio_set_volume"]

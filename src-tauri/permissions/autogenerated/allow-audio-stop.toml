@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-audio-stop"
+description = "Allows audio_stop command"
+commands.allow = ["audio_stop"]

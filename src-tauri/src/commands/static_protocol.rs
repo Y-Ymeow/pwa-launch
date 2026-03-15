@@ -30,7 +30,7 @@ pub fn handle_static_request(request: http::Request<Vec<u8>>) -> http::Response<
     } else {
         &file_path
     };
-    
+
     if actual_url.starts_with("http://") || actual_url.starts_with("https://") {
         return handle_remote_request(actual_url, &request);
     }

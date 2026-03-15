@@ -325,8 +325,14 @@ pub fn kv_clear(
     db: State<'_, DbConnection>,
 ) -> Result<CommandResponse<bool>, String> {
     let conn = db.inner().lock().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM kv_store WHERE app_id = ?", [app_id])
-        .map_err(|e| e.to_string())?;
+    if app_id == "*" {
+        // 清除所有 KV 数据
+        conn.execute("DELETE FROM kv_store", [])
+            .map_err(|e| e.to_string())?;
+    } else {
+        conn.execute("DELETE FROM kv_store WHERE app_id = ?", [app_id])
+            .map_err(|e| e.to_string())?;
+    }
     Ok(CommandResponse::success(true))
 }
 

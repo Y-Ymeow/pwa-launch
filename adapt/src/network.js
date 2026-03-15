@@ -1,8 +1,87 @@
 /**
  * Network APIs (fetch/XHR proxy)
+ * 通过 postMessage 转发给父窗口代理请求
  */
 
 import { originalFetch, OriginalXHR } from "./core.js";
+
+// 生成唯一请求 ID
+const generateRequestId = () =>
+  Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+
+// 本地服务器配置
+const LOCAL_SERVER_PORT = 19315;
+const PROXY_URL = `http://localhost:${LOCAL_SERVER_PORT}/api/proxy`;
+
+// 通过父窗口代理 HTTP 请求（postMessage -> 父窗口 fetch 本地服务器）
+function proxyViaLocalServer(url, method, headers, body, isMedia = false) {
+  return new Promise((resolve, reject) => {
+    const requestId = generateRequestId();
+
+    const handler = (event) => {
+      if (
+        event.data?.type === "ADAPT_PROXY_RESPONSE" &&
+        event.data?.requestId === requestId
+      ) {
+        window.removeEventListener("message", handler);
+
+        if (event.data.success) {
+          // 构造可多次读取的 Response 对象
+          const responseData = event.data.data;
+          const blob = new Blob([responseData.body]);
+          const responseHeaders = new Headers(responseData.headers);
+
+          // 创建类 Response 对象，支持多次读取 body
+          const response = {
+            ok: responseData.status >= 200 && responseData.status < 300,
+            status: responseData.status,
+            statusText: responseData.statusText,
+            headers: responseHeaders,
+            url: url,
+            clone: function () {
+              return this;
+            },
+            text: async () => await blob.text(),
+            json: async () => JSON.parse(await blob.text()),
+            blob: async () => blob,
+            arrayBuffer: async () => await blob.arrayBuffer(),
+            bodyUsed: false,
+          };
+          resolve(response);
+        } else {
+          reject(new Error(event.data.error || "Proxy request failed"));
+        }
+      }
+    };
+
+    window.addEventListener("message", handler);
+
+    // 30 秒超时
+    setTimeout(() => {
+      window.removeEventListener("message", handler);
+      reject(new Error("Proxy request timeout"));
+    }, 30000);
+
+    // 添加 Cache-Control header 防止缓存（不修改 URL）
+    headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
+    headers["Pragma"] = "no-cache";
+    headers["Expires"] = "0";
+
+    // 发送代理请求给父窗口，使用 isMedia 标记来选择路由
+    window.parent.postMessage(
+      {
+        type: "ADAPT_PROXY_REQUEST",
+        requestId,
+        url,
+        method,
+        headers,
+        body,
+        isMedia,  // 标记是否为媒体请求
+      },
+      "*",
+    );
+  });
+}
 
 export function createNetwork(bridge) {
   return {
@@ -10,13 +89,11 @@ export function createNetwork(bridge) {
       // 处理 input 可能是 Request 对象的情况
       let urlStr;
       let options = { ...init };
-      
+
       if (input instanceof Request) {
         urlStr = input.url;
-        // 从 Request 对象中提取选项
         options.method = init.method || input.method;
         options.headers = init.headers || {};
-        // 复制 Request 的 headers
         input.headers.forEach((value, key) => {
           if (!options.headers[key]) {
             options.headers[key] = value;
@@ -26,7 +103,7 @@ export function createNetwork(bridge) {
         urlStr = input.toString();
       }
 
-      // 跳过 static:// 协议的请求（让浏览器直接使用原生协议）
+      // 跳过 static:// 协议的请求
       if (
         urlStr.startsWith("static://") ||
         urlStr.startsWith("http://static.localhost")
@@ -35,76 +112,100 @@ export function createNetwork(bridge) {
       }
 
       // 检测是否是流式请求 (AI SSE/Stream)
-      const isStreamRequest = options.headers?.['Accept'] === 'text/event-stream' ||
-                              options.headers?.['accept'] === 'text/event-stream' ||
-                              (typeof options.body === 'string' && options.body.includes('"stream":true')) ||
-                              (typeof options.body === 'string' && options.body.includes('"stream": true'));
-      
-      // 检测是否标记为直接请求（不走代理，用于支持 CORS 的 API）
-      const isDirectRequest = options.headers?.['X-Direct-Request'] === 'true' ||
-                              options.headers?.['x-direct-request'] === 'true';
-      
-      // 使用 fetch:// 协议直接代理请求（比 invoke 快）
+      const isStreamRequest =
+        options.headers?.["Accept"] === "text/event-stream" ||
+        options.headers?.["accept"] === "text/event-stream" ||
+        (typeof options.body === "string" &&
+          options.body.includes('"stream":true')) ||
+        (typeof options.body === "string" &&
+          options.body.includes('"stream": true'));
+
+      // 检测是否标记为直接请求
+      const isDirectRequest =
+        options.headers?.["X-Direct-Request"] === "true" ||
+        options.headers?.["x-direct-request"] === "true";
+
+      // 检测是否是音视频请求（走 /media/proxy 专用路由）
+      const isMediaRequest =
+        urlStr.match(/\.(mp3|m4a|ogg|wav|flac|aac|wma|mp4|webm|m4s|ts|m3u8|mpd)(\?.*)?$/i) ||
+        options.headers?.["Accept"]?.startsWith("audio/") ||
+        options.headers?.["Accept"]?.startsWith("video/");
+
+      // 代理 HTTP/HTTPS 请求
       if (urlStr.startsWith("http://") || urlStr.startsWith("https://")) {
-        // 如果是标记为直接请求，直接走原生 fetch
+        // 直接请求，不走代理
         if (isDirectRequest) {
-          console.log("[PWA Adapt] Direct request (no proxy):", urlStr);
-          // 删除标记后再发送，避免发送到服务器
-          const cleanOptions = {...options};
+          console.log("[PWA Adapt] Direct request:", urlStr);
+          const cleanOptions = { ...options };
           if (cleanOptions.headers) {
-            delete cleanOptions.headers['X-Direct-Request'];
-            delete cleanOptions.headers['x-direct-request'];
+            delete cleanOptions.headers["X-Direct-Request"];
+            delete cleanOptions.headers["x-direct-request"];
           }
           return await originalFetch(urlStr, cleanOptions);
         }
-        
-        // 如果是流式请求，需要特殊处理
+
+        // 流式请求特殊处理
         if (isStreamRequest) {
-          console.log("[PWA Adapt] Stream request detected, using streaming proxy:", urlStr);
-          // 流式请求暂时回退到原生 fetch（可能需要处理 CORS）
-          // 或者可以实现专门的流式代理命令
+          console.log("[PWA Adapt] Stream request:", urlStr);
+          return await originalFetch(urlStr, options);
+        }
+
+        // 音视频请求使用 /media/proxy 路由（禁用 gzip，流式传输）
+        if (isMediaRequest) {
+          console.log("[PWA Adapt] Media request via /media/proxy:", urlStr);
+          
+          // 设置 headers，自动添加 Referer
+          const mediaHeaders = { ...options.headers };
+          if (!mediaHeaders["Referer"] && !mediaHeaders["referer"]) {
+            try {
+              const urlObj = new URL(urlStr);
+              mediaHeaders["Referer"] = `${urlObj.protocol}//${urlObj.host}`;
+            } catch {
+              mediaHeaders["Referer"] = location.href;
+            }
+          }
+          
+          // 使用 postMessage 桥接，传递 isMedia=true
+          return await proxyViaLocalServer(
+            urlStr,
+            options.method || "GET",
+            mediaHeaders,
+            options.body,
+            true,  // isMedia = true
+          );
+        }
+
+        // 通过父窗口代理请求（本地 HTTP 服务器）
+        console.log("[PWA Adapt] Proxy via parent:", urlStr);
+        const headers = { ...options.headers };
+
+        // 设置 Referer 为目标 URL 的基础部分（不带末尾斜杠，与 curl 一致）
+        if (!headers["Referer"] && !headers["referer"]) {
           try {
-            return await originalFetch(urlStr, options);
-          } catch (e) {
-            console.warn("[PWA Adapt] Direct stream fetch failed, trying proxy:", e);
+            const urlObj = new URL(urlStr);
+            headers["Referer"] = `${urlObj.protocol}//${urlObj.host}`;
+          } catch {
+            headers["Referer"] = location.href;
           }
         }
-        
-        // Android 上映射为 http://fetch.localhost/，其他平台用 fetch://localhost/
-        const isAndroid = /Android/i.test(navigator.userAgent);
-        const fetchUrl = isAndroid 
-          ? 'http://fetch.localhost/proxy'
-          : 'fetch://localhost/proxy';
-        
-        try {
-          // 构造 headers，自动添加 Referer（当前页面 URL）
-          const headers = { ...options.headers };
-          if (!headers['Referer'] && !headers['referer']) {
-            headers['Referer'] = location.href;
-          }
-          
-          // 构造请求 body
-          const proxyBody = JSON.stringify({
-            target: urlStr,
-            method: options.method || 'GET',
-            headers: headers,
-            body: options.body
-          });
-          
-          // 发送给 fetch://localhost/proxy
-          return await originalFetch(fetchUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: proxyBody
-          });
-        } catch (error) {
-          console.error("[PWA Adapt] Fetch protocol error:", error);
-          console.log("[PWA Adapt] Falling back to proxy_fetch");
+
+        // 使用简单的 User-Agent（与 curl 一致）
+        headers["User-Agent"] = "Mozilla/5.0";
+
+        // 添加简单的 Accept 头（与 curl 一致）
+        if (!headers["Accept"] && !headers["accept"]) {
+          headers["Accept"] = "*/*";
         }
+
+        return await proxyViaLocalServer(
+          urlStr,
+          options.method || "GET",
+          headers,
+          options.body,
+        );
       }
 
+      // 处理 tauri:// 协议
       if (urlStr.startsWith("tauri://")) {
         const match = urlStr.match(/tauri:\/\/(.+)/);
         if (match) {
@@ -126,86 +227,16 @@ export function createNetwork(bridge) {
         }
       }
 
-      try {
-        // 检测 responseType - 从 options、headers 或 URL 扩展名中获取
-        let respType = options.responseType;
-
-        // 检查 URL 扩展名判断是否为二进制资源
-        if (!respType) {
-          const urlLower = urlStr.toLowerCase();
-          if (urlLower.match(/\.(jpg|jpeg|png|gif|webp|bmp|ico|svg)(\?|$)/)) {
-            respType = "blob";
-          } else if (urlLower.match(/\.(mp3|wav|ogg|flac|aac|m4a)(\?|$)/)) {
-            respType = "blob";
-          } else if (urlLower.match(/\.(mp4|webm|avi|mov|mkv)(\?|$)/)) {
-            respType = "blob";
-          } else if (urlLower.match(/\.(pdf|zip|rar|7z|tar|gz)(\?|$)/)) {
-            respType = "blob";
-          }
-        }
-
-        // 检查 Accept header
-        if (!respType && options.headers) {
-          const acceptHeader =
-            options.headers["Accept"] || options.headers["accept"];
-          if (acceptHeader) {
-            if (
-              acceptHeader.includes("image/") ||
-              acceptHeader.includes("audio/") ||
-              acceptHeader.includes("video/") ||
-              acceptHeader.includes("application/octet-stream")
-            ) {
-              respType = "blob";
-            }
-          }
-        }
-        respType = respType || "text";
-
-        const result = await bridge.invoke("proxy_fetch", {
-          url: urlStr,
-          method: options.method || "GET",
-          headers: options.headers || {},
-          body: options.body || null,
-          responseType: respType,
-        });
-
-        const responseData = result.data || result;
-
-        // 创建新的 headers 对象
-        const responseHeaders = new Headers(responseData.headers || {});
-
-        let body = responseData.body;
-
-        // 处理二进制数据（base64 解码）
-        if (responseData.is_base64 || respType === "arraybuffer" || respType === "blob") {
-          const byteCharacters = atob(body);
-          const byteArray = new Uint8Array(byteCharacters.length);
-          for (let i = 0; i < byteCharacters.length; i++) {
-            byteArray[i] = byteCharacters.charCodeAt(i);
-          }
-          body = byteArray.buffer;
-        }
-
-        // 创建 Response - 确保 body 是 Uint8Array 以支持 blob()
-        let responseBody;
-        if (body instanceof ArrayBuffer) {
-          responseBody = new Uint8Array(body);
-        } else {
-          responseBody = body;
-        }
-
-        return new Response(responseBody, {
-          status: responseData.status,
-          headers: responseHeaders,
-        });
-      } catch (invokeError) {
-        console.error("[PWA Adapt] Proxy fetch failed:", invokeError);
-        return new Response(JSON.stringify({ error: invokeError.message }), {
-          status: 500,
-          statusText: "Bad Gateway",
+      // 未知协议
+      console.error("[PWA Adapt] Unknown protocol:", urlStr);
+      return new Response(
+        JSON.stringify({ error: "Unknown protocol: " + urlStr }),
+        {
+          status: 400,
+          statusText: "Bad Request",
           headers: { "Content-Type": "application/json" },
-        });
-      }
+        },
+      );
     },
   };
 }
@@ -269,39 +300,25 @@ export function setupXHRProxy(tauriBridge) {
           }
 
           try {
-            // 使用 fetch:// 协议（比 proxy_fetch 快）
-            const isAndroid = /Android/i.test(navigator.userAgent);
-            const fetchUrl = isAndroid 
-              ? 'http://fetch.localhost/proxy'
-              : 'fetch://localhost/proxy';
-            
-            // 构造请求 body
-            const proxyBody = JSON.stringify({
-              target: requestUrl,
-              method: requestMethod,
-              headers: requestHeaders,
-              body: requestBody
-            });
-            
-            // 使用原生 fetch 发起请求
-            const response = await originalFetch(fetchUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: proxyBody
-            });
-            
-            // 读取响应
+            // 通过父窗口代理
+            const response = await proxyViaLocalServer(
+              requestUrl,
+              requestMethod,
+              requestHeaders,
+              requestBody,
+            );
+
             const responseType = xhr.responseType || "text";
             let responseValue;
             let responseText;
-            
+
             if (responseType === "arraybuffer") {
-              responseValue = await response.arrayBuffer();
+              const buffer = await response.arrayBuffer();
+              responseValue = buffer;
               responseText = "";
             } else if (responseType === "blob") {
-              responseValue = await response.blob();
+              const blob = await response.blob();
+              responseValue = blob;
               responseText = "";
             } else if (responseType === "json") {
               responseText = await response.text();
@@ -311,29 +328,23 @@ export function setupXHRProxy(tauriBridge) {
                 responseValue = responseText;
               }
             } else {
-              // text 或其他
               responseText = await response.text();
               responseValue = responseText;
             }
-            
-            // 解析响应头
+
             responseHeaders = {};
             response.headers.forEach((value, key) => {
               responseHeaders[key] = value;
             });
 
-            console.log(
-              "[PWA Adapt] XHR proxy response:",
-              response.status,
-              response.statusText,
-            );
-            
+            console.log("[PWA Adapt] XHR response:", response.status);
+
             Object.defineProperty(xhr, "status", {
               value: response.status,
               writable: false,
             });
             Object.defineProperty(xhr, "statusText", {
-              value: response.statusText || (response.status === 200 ? "OK" : ""),
+              value: response.statusText || "OK",
               writable: false,
             });
             Object.defineProperty(xhr, "responseText", {
@@ -383,54 +394,81 @@ export function setupXHRProxy(tauriBridge) {
 }
 
 export function setupImageProxy(tauriBridge) {
-  function proxyImage(img) {
-    const src = img.getAttribute("src") || img.src;
-    if (!src || img.dataset.proxied) return;
+  // 拦截图片加载 - 在 onload 中处理可以确保图片已经设置 src
+  function interceptImage(img) {
+    if (img.dataset.intercepted) return;
+    img.dataset.intercepted = "true";
 
-    console.log("[PWA Adapt] Image src:", src);
+    // 保存原始 src getter/setter
+    const srcDescriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "src");
+    const originalSrcSetter = srcDescriptor.set;
+    const originalSrcGetter = srcDescriptor.get;
 
-    // 跳过 blob 和 data URL
-    if (src.startsWith("blob:") || src.startsWith("data:")) return;
+    // 覆盖 src 属性
+    Object.defineProperty(img, "src", {
+      get() {
+        return originalSrcGetter.call(this);
+      },
+      set(value) {
+        const proxiedValue = proxyImageUrl(value);
+        console.log("[PWA Adapt] Image src set:", value, "->", proxiedValue);
+        originalSrcSetter.call(this, proxiedValue);
+      },
+      configurable: true,
+    });
 
-    // 跳过已经代理的
+    // 处理当前已设置的 src
+    const currentSrc = originalSrcGetter.call(img);
+    if (currentSrc && !img.dataset.proxied) {
+      const proxiedUrl = proxyImageUrl(currentSrc);
+      if (proxiedUrl !== currentSrc) {
+        originalSrcSetter.call(img, proxiedUrl);
+      }
+    }
+  }
+
+  function proxyImageUrl(src) {
+    if (!src || typeof src !== "string") return src;
+
+    // 跳过已经代理的、data URL、blob URL
     if (
+      src.startsWith("data:") ||
+      src.startsWith("blob:") ||
+      src.startsWith("http://localhost:19315") ||
       src.startsWith("static://") ||
       src.startsWith("http://static.localhost")
-    )
-      return;
-
-    try {
-      const url = new URL(src, window.location.href);
-      // 跳过同源的
-      if (url.origin === window.location.origin && !src.startsWith("http"))
-        return;
-    } catch (e) {
-      // URL 解析失败，可能是相对路径，不处理
-      return;
+    ) {
+      return src;
     }
 
-    img.dataset.proxied = "true";
-    img.dataset.originalSrc = src;
+    // 跳过相对路径和同源 URL
+    try {
+      const url = new URL(src, window.location.href);
+      if (url.origin === window.location.origin && !src.startsWith("http")) {
+        return src;
+      }
+    } catch (e) {
+      return src;
+    }
 
-    const staticUrl = `${tauriBridge.staticBaseUrl}/${src}`;
-    console.log("[PWA Adapt] Proxy image:", src, "->", staticUrl);
-    img.src = staticUrl;
+    // 返回代理 URL
+    return `http://localhost:19315/static/${encodeURIComponent(src)}`;
   }
 
   function initProxy() {
-    console.log("[PWA Adapt] Initializing image proxy...");
+    console.log("[PWA Adapt] Initializing image proxy (onload)...");
 
-    // 处理已存在的图片
-    document.querySelectorAll("img").forEach(proxyImage);
+    // 拦截页面中所有现有的 img 元素
+    document.querySelectorAll("img").forEach(interceptImage);
 
-    // 监听动态添加的图片
+    // 监听新添加的 img 元素
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
           if (node.nodeName === "IMG") {
-            proxyImage(node);
+            interceptImage(node);
           } else if (node.querySelectorAll) {
-            node.querySelectorAll("img").forEach(proxyImage);
+            node.querySelectorAll("img").forEach(interceptImage);
           }
         });
       });
@@ -439,14 +477,8 @@ export function setupImageProxy(tauriBridge) {
     if (document.body) {
       observer.observe(document.body, { childList: true, subtree: true });
     }
-
-    // 延迟再执行一次，确保动态加载的图片也被处理
-    setTimeout(() => {
-      document.querySelectorAll("img").forEach(proxyImage);
-    }, 1000);
   }
 
-  // 页面完全加载后执行（包括所有资源）
   if (document.readyState === "complete") {
     initProxy();
   } else {

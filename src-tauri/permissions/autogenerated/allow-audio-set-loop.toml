@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-audio-set-loop"
+description = "Allows audio_set_loop command"
+commands.allow = ["audio_set_loop"]

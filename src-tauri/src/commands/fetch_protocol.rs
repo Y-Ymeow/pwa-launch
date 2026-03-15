@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::commands::CookieStore;
+use std::collections::HashMap;
 
 #[derive(serde::Deserialize)]
 struct ProxyRequest {
@@ -11,9 +11,12 @@ struct ProxyRequest {
 
 /// 从 URL 解析域名
 fn extract_domain(url: &str) -> Option<String> {
-    url.split("://").nth(1)?
-        .split('/').next()?
-        .split(':').next()
+    url.split("://")
+        .nth(1)?
+        .split('/')
+        .next()?
+        .split(':')
+        .next()
         .map(|s| s.to_string())
 }
 
@@ -27,13 +30,14 @@ pub async fn handle_fetch_request_async(
     cookie_store: Option<&CookieStore>,
 ) -> Result<tauri::http::Response<Vec<u8>>, String> {
     let uri = request.uri().to_string();
-    
+
     // 验证 URL 格式（fetch://localhost/ 或 http://fetch.localhost/）
-    let valid_url = uri.starts_with("fetch://localhost/") || uri.starts_with("http://fetch.localhost/");
+    let valid_url =
+        uri.starts_with("fetch://localhost/") || uri.starts_with("http://fetch.localhost/");
     if !valid_url {
         return Err(format!("Invalid fetch protocol URL: {}", uri));
     }
-    
+
     // 解析 POST body 中的 JSON
     let body = request.body();
     let proxy_req: ProxyRequest = match serde_json::from_slice(body) {
@@ -42,14 +46,19 @@ pub async fn handle_fetch_request_async(
             return Err(format!("Failed to parse proxy request body: {}", e));
         }
     };
-    
+
     let target_url = proxy_req.target;
     let method = proxy_req.method.unwrap_or_else(|| "GET".to_string());
-    
+
     // 提取目标域名
     let target_domain = extract_domain(&target_url).unwrap_or_default();
-    log::info!("[FetchProtocol] {} {} (domain: {})", method, target_url, target_domain);
-    
+    log::info!(
+        "[FetchProtocol] {} {} (domain: {})",
+        method,
+        target_url,
+        target_domain
+    );
+
     // 使用异步 reqwest 客户端
     let client = reqwest::Client::new();
     let http_method = match method.as_str() {
@@ -62,28 +71,45 @@ pub async fn handle_fetch_request_async(
         "OPTIONS" => reqwest::Method::OPTIONS,
         _ => reqwest::Method::GET,
     };
-    
+
     // 构建请求
     let mut request_builder = client.request(http_method, &target_url);
-    
+
     // 复制从 body 解析的请求头
+    let mut has_referer = false;
     if let Some(headers) = proxy_req.headers {
         for (key, value) in headers {
             let key_str = key.to_lowercase();
             // 允许 Referer，过滤掉 host/origin/content-length/cookie
-            if key_str != "host" && key_str != "origin" && key_str != "content-length" && key_str != "cookie" {
+            if key_str != "host"
+                && key_str != "origin"
+                && key_str != "content-length"
+                && key_str != "cookie"
+            {
+                if key_str == "referer" {
+                    has_referer = true;
+                }
                 request_builder = request_builder.header(key, value);
             }
         }
     }
-    
+
+    // 如果没有提供 Referer，设置默认值为目标站点（Bilibili 等需要）
+    if !has_referer {
+        if let Some(domain) = extract_domain(&target_url) {
+            let referer = format!("https://{}/", domain);
+            request_builder = request_builder.header("Referer", &referer);
+            log::info!("[FetchProtocol] Auto-set Referer: {}", referer);
+        }
+    }
+
     // 从 CookieStore 获取并添加 cookies
     if let Some(store) = cookie_store {
         let store_guard = store.read().await;
-        
+
         // 收集所有匹配的 cookies
         let mut all_cookies: Vec<String> = Vec::new();
-        
+
         // 1. 从 "webview" 特殊条目获取（浏览器模式同步的）
         if let Some(webview_cookies) = store_guard.get("webview") {
             if let Some(domain_cookies) = webview_cookies.get(&target_domain) {
@@ -92,31 +118,34 @@ pub async fn handle_fetch_request_async(
                 }
             }
         }
-        
+
         // 2. 从通用 cookies 获取
         if let Some(general_cookies) = store_guard.get("general") {
             if let Some(domain_cookies) = general_cookies.get(&target_domain) {
                 for (key, value) in domain_cookies {
-                    if !all_cookies.iter().any(|c| c.starts_with(&format!("{}=", key))) {
+                    if !all_cookies
+                        .iter()
+                        .any(|c| c.starts_with(&format!("{}=", key)))
+                    {
                         all_cookies.push(format!("{}={}", key, value));
                     }
                 }
             }
         }
-        
+
         if !all_cookies.is_empty() {
             let cookie_header = all_cookies.join("; ");
             log::info!("[FetchProtocol] Adding cookies: {}", cookie_header);
             request_builder = request_builder.header("Cookie", cookie_header);
         }
     }
-    
+
     // 添加常用头
     request_builder = request_builder
         .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36")
         .header("Accept", "*/*")
         .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
-    
+
     // 设置请求 body（如果有）
     if let Some(body_value) = proxy_req.body {
         let body_str = match body_value {
@@ -128,7 +157,7 @@ pub async fn handle_fetch_request_async(
 
     // log builder
     log::info!("[FetchProtocol] Request: {:?}", request_builder);
-    
+
     // 发送异步请求
     let response = match request_builder.send().await {
         Ok(r) => r,
@@ -141,18 +170,19 @@ pub async fn handle_fetch_request_async(
                 .unwrap());
         }
     };
-    
+
     let status = response.status();
-    
+
     // 保存 Set-Cookie 到 CookieStore
     if let Some(store) = cookie_store {
-        let set_cookie_headers: Vec<_> = response.headers()
+        let set_cookie_headers: Vec<_> = response
+            .headers()
             .get_all("set-cookie")
             .iter()
             .filter_map(|v| v.to_str().ok())
             .map(|s| s.to_string())
             .collect();
-        
+
         if !set_cookie_headers.is_empty() {
             let mut store_guard = store.write().await;
             let general_cookies = store_guard
@@ -161,15 +191,24 @@ pub async fn handle_fetch_request_async(
             let domain_cookies = general_cookies
                 .entry(target_domain.clone())
                 .or_insert_with(HashMap::new);
-            
+
             for cookie_str in set_cookie_headers {
                 // 解析 cookie (格式: "name=value; expires=...; path=...")
                 if let Some(eq_pos) = cookie_str.find('=') {
                     let key = cookie_str[..eq_pos].trim().to_string();
                     let value_part = &cookie_str[eq_pos + 1..];
                     // 取第一个分号前的部分作为值
-                    let value = value_part.split(';').next().unwrap_or("").trim().to_string();
-                    if !key.is_empty() && key.to_lowercase() != "expires" && key.to_lowercase() != "path" && key.to_lowercase() != "domain" {
+                    let value = value_part
+                        .split(';')
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    if !key.is_empty()
+                        && key.to_lowercase() != "expires"
+                        && key.to_lowercase() != "path"
+                        && key.to_lowercase() != "domain"
+                    {
                         log::info!("[FetchProtocol] Saving cookie: {}={}", key, value);
                         domain_cookies.insert(key, value);
                     }
@@ -177,35 +216,46 @@ pub async fn handle_fetch_request_async(
             }
         }
     }
-    
+
     // 检查是否是 gzip 压缩
-    let is_gzip = response.headers()
+    let is_gzip = response
+        .headers()
         .get("content-encoding")
         .map(|v| v.to_str().unwrap_or("").contains("gzip"))
         .unwrap_or(false);
-    
+
+    // 检查是否为 Range 请求响应（206 Partial Content）
+    let is_partial_content = status == reqwest::StatusCode::PARTIAL_CONTENT;
+
     // 构建响应
-    let mut response_builder = tauri::http::Response::builder()
-        .status(status.as_u16());
-    
+    let mut response_builder = tauri::http::Response::builder().status(status.as_u16());
+
     // 复制响应头（跳过 content-encoding，因为我们要解压）
     for (key, value) in response.headers() {
         let key_str = key.as_str().to_lowercase();
         // 跳过压缩相关的头，因为内容已解压
-        if key_str == "content-encoding" || key_str == "content-length" {
+        if key_str == "content-encoding" {
+            continue;
+        }
+        // 对于非 Range 请求，跳过 content-length（因为解压后大小变了）
+        // 但对于 206 Partial Content，必须保留 content-length 和 content-range
+        if key_str == "content-length" && !is_partial_content {
             continue;
         }
         if let Ok(val) = value.to_str() {
             response_builder = response_builder.header(key.as_str(), val);
         }
     }
-    
+
     // 添加 CORS 头
     response_builder = response_builder
         .header("Access-Control-Allow-Origin", "*")
-        .header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        .header(
+            "Access-Control-Allow-Methods",
+            "GET, POST, PUT, DELETE, OPTIONS",
+        )
         .header("Access-Control-Allow-Headers", "*");
-    
+
     // 异步读取响应体
     let body_bytes = match response.bytes().await {
         Ok(b) => b.to_vec(),
@@ -214,7 +264,7 @@ pub async fn handle_fetch_request_async(
             return Err(e.to_string());
         }
     };
-    
+
     // 如果是 gzip 压缩，解压它
     let body = if is_gzip {
         use std::io::Read;
@@ -230,7 +280,7 @@ pub async fn handle_fetch_request_async(
     } else {
         body_bytes
     };
-    
+
     Ok(response_builder.body(body).unwrap())
 }
 
