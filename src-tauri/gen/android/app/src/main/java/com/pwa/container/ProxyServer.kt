@@ -380,7 +380,9 @@ class ProxyServer(port: Int = 19315) : NanoHTTPD("localhost", port) {
                 }.coerceAtMost(fileLength - 1)
 
                 if (start > end || start >= fileLength) {
-                    return newFixedLengthResponse(Status.lookup(416) ?: Status.BAD_REQUEST, "text/plain", "Invalid range")
+                    val errRes = newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Invalid range")
+                    errRes.addHeader("Content-Range", "bytes */$fileLength")
+                    return errRes
                 }
 
                 val length = end - start + 1
@@ -392,13 +394,14 @@ class ProxyServer(port: Int = 19315) : NanoHTTPD("localhost", port) {
                 fis.read(buffer)
                 fis.close()
 
+                // 创建 206 Partial Content 响应（使用 200 OK + Content-Range）
                 val response = newFixedLengthResponse(
-                    Status.PARTIAL_CONTENT,
+                    Status.OK,
                     mimeType,
                     ByteArrayInputStream(buffer),
                     length
                 )
-
+                
                 response.addHeader("Content-Range", "bytes $start-$end/$fileLength")
                 response.addHeader("Accept-Ranges", "bytes")
                 response.addHeader("Content-Length", length.toString())
