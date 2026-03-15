@@ -76,8 +76,8 @@ pub async fn start_local_server(
                         if url.scheme() != "file" {
                             if let Some(host) = url.host_str() {
                                 let referer = format!("{}://{}", url.scheme(), host);
-                                custom_headers.insert("Referer".to_string(), referer);
                                 log::info!("[LocalServer] Auto-set Referer: {}", referer);
+                                custom_headers.insert("Referer".to_string(), referer);
                             }
                         }
                     }
