@@ -65,3 +65,6 @@ lto = true
 opt-level = "s"
 panic = "abort"
 strip = true
+
+[build]
+rustc-wrapper = "~/.cargo/bin/sccache"

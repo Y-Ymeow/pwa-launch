@@ -23,6 +23,11 @@ export function ProxySettings({ show, onClose, showMessage }: ProxySettingsProps
   }, []);
 
   const loadSettings = async () => {
+    // 检查是否在 Tauri 环境中
+    if (typeof window.__TAURI_INTERNALS__ === 'undefined') {
+      console.log('不在 Tauri 环境中，跳过加载代理设置');
+      return;
+    }
     try {
       const response = await invoke<CommandResponse<ProxySettingsType | null>>("get_proxy");
       if (response.success && response.data) {
@@ -38,6 +43,11 @@ export function ProxySettings({ show, onClose, showMessage }: ProxySettingsProps
   };
 
   const saveSettings = async () => {
+    // 检查是否在 Tauri 环境中
+    if (typeof window.__TAURI_INTERNALS__ === 'undefined') {
+      showMessage("error", "请在 Tauri 应用中保存设置");
+      return;
+    }
     try {
       await invoke("set_proxy", {
         enabled: settings.enabled,
@@ -55,6 +65,11 @@ export function ProxySettings({ show, onClose, showMessage }: ProxySettingsProps
   };
 
   const testProxy = async () => {
+    // 检查是否在 Tauri 环境中
+    if (typeof window.__TAURI_INTERNALS__ === 'undefined') {
+      showMessage("error", "请在 Tauri 应用中测试代理");
+      return;
+    }
     try {
       await invoke("set_proxy", {
         enabled: settings.enabled,
