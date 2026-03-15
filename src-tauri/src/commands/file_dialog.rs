@@ -26,22 +26,28 @@ pub struct OpenDialogResponse {
 #[tauri::command]
 pub async fn open_file_dialog(
     app: tauri::AppHandle,
-    options: OpenDialogOptions,
+    title: Option<String>,
+    multiple: Option<bool>,
+    filters: Option<Vec<FileFilter>>,
+    directory: Option<bool>,
 ) -> Result<CommandResponse<OpenDialogResponse>, String> {
     use tauri_plugin_dialog::DialogExt;
 
-    log::info!("open_file_dialog called with options: {:?}", options);
+    log::info!(
+        "open_file_dialog called: title={:?}, multiple={:?}, filters={:?}, directory={:?}",
+        title, multiple, filters, directory
+    );
 
     // 使用 dialog 插件打开文件选择器
     let mut dialog = app.dialog().file();
 
     // 设置标题
-    if let Some(title) = options.title {
+    if let Some(title) = title {
         dialog = dialog.set_title(title);
     }
 
     // 添加文件过滤器
-    if let Some(filters) = options.filters {
+    if let Some(filters) = filters {
         for filter in filters {
             // 去掉扩展名前面的点号
             let exts: Vec<&str> = filter
@@ -56,7 +62,7 @@ pub async fn open_file_dialog(
     }
 
     // 执行选择
-    let paths: Vec<String> = if options.multiple.unwrap_or(false) {
+    let paths: Vec<String> = if multiple.unwrap_or(false) {
         match dialog.blocking_pick_files() {
             Some(file_paths) => {
                 log::info!("Selected files: {:?}", file_paths);
@@ -228,54 +234,18 @@ pub async fn read_file_content(path: String) -> Result<CommandResponse<serde_jso
 
 #[tauri::command]
 pub async fn resolve_local_file_url(path: String) -> Result<CommandResponse<String>, String> {
+    use crate::local_server::get_local_server_port;
+
     log::info!("resolve_local_file_url: {}", path);
 
-    // 根据文件类型选择协议
-    let ext = std::path::Path::new(&path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase();
+    // 返回本地 HTTP 服务器 URL
+    // 使用 /local/file/<encoded_path> 格式
+    let encoded_path = urlencoding::encode(&path);
+    let port = get_local_server_port();
+    let url = format!("http://localhost:{}/local/file/{}", port, encoded_path);
 
-    // 音视频文件使用 local server (无状态代理方案，最兼容 WebKit 媒体引擎)
-    let is_media = matches!(
-        ext.as_str(),
-        "mp3"
-            | "flac"
-            | "wav"
-            | "ogg"
-            | "m4a"
-            | "aac"
-            | "wma"
-            | "mp4"
-            | "webm"
-            | "mkv"
-            | "mov"
-            | "avi"
-    );
-
-    if is_media {
-        // 音视频：使用 static 协议
-        let encoded_path = urlencoding::encode(&path);
-        let url = if cfg!(target_os = "android") {
-            format!("http://static.localhost/{}", encoded_path)
-        } else {
-            format!("static://localhost/{}", encoded_path)
-        };
-        log::info!("Static URL for media: {}", url);
-        Ok(CommandResponse::success(url))
-    } else {
-        // 图片、文档等：使用 static 协议（更快，无 HTTP 开销）
-        log::info!("Static URL for file: {}", path);
-        let encoded_path = urlencoding::encode(&path);
-        // Android 使用 http://static.localhost，其他平台使用 static://localhost
-        let url = if cfg!(target_os = "android") {
-            format!("http://static.localhost/{}", encoded_path)
-        } else {
-            format!("static://localhost/{}", encoded_path)
-        };
-        Ok(CommandResponse::success(url))
-    }
+    log::info!("Local file URL: {}", url);
+    Ok(CommandResponse::success(url))
 }
 
 /// 读取文件指定范围的内容（用于获取元数据）

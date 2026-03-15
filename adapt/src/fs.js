@@ -125,10 +125,8 @@ export function createFS(bridge) {
     },
 
     async resolveLocalFileUrl(filePath) {
-      if (filePath.startsWith("static://") ||
-          filePath.startsWith("http://static.localhost/") ||
-          filePath.startsWith("http://127.0.0.1:") ||
-          filePath.startsWith("http://localhost:")) {
+      // 如果已经是 http://localhost URL，直接返回
+      if (filePath.startsWith("http://localhost:")) {
         return filePath;
       }
 

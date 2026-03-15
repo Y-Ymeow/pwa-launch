@@ -66,7 +66,6 @@ pub mod proxy;
 
 pub mod pwa;
 
-pub mod static_protocol;
 pub mod stream_proxy;
 pub mod webview;
 pub mod ws_proxy;

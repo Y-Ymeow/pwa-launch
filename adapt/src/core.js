@@ -22,10 +22,6 @@ export function createBridge() {
       );
     },
 
-    get staticBaseUrl() {
-      return this._isMobile ? "http://static.localhost" : "static://localhost";
-    },
-
     async init() {
       if (window.parent === window) {
         console.log("[PWA Adapt] Not in iframe");

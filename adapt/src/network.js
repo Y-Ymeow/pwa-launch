@@ -103,14 +103,6 @@ export function createNetwork(bridge) {
         urlStr = input.toString();
       }
 
-      // 跳过 static:// 协议的请求
-      if (
-        urlStr.startsWith("static://") ||
-        urlStr.startsWith("http://static.localhost")
-      ) {
-        return originalFetch(urlStr, options);
-      }
-
       // 检测是否是流式请求 (AI SSE/Stream)
       const isStreamRequest =
         options.headers?.["Accept"] === "text/event-stream" ||
@@ -434,9 +426,7 @@ export function setupImageProxy(tauriBridge) {
     if (
       src.startsWith("data:") ||
       src.startsWith("blob:") ||
-      src.startsWith("http://localhost:19315") ||
-      src.startsWith("static://") ||
-      src.startsWith("http://static.localhost")
+      src.startsWith("http://localhost:19315")
     ) {
       return src;
     }

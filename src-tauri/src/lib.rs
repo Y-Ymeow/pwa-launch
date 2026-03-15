@@ -52,9 +52,6 @@ pub fn run() {
         .plugin(shell_plugin())
         .plugin(fs_plugin())
         .plugin(http_plugin())
-        .register_uri_scheme_protocol("static", |_app, request| {
-            commands::static_protocol::handle_static_request(request)
-        })
         .register_uri_scheme_protocol("adapt", |_app, _request| {
             // 编译时嵌入 adapt.min.js 内容，避免运行时文件路径问题（Android 无法访问文件）
             const ADAPT_JS: &str = include_str!("../../adapt.min.js");

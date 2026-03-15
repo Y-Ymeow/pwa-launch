@@ -106,7 +106,7 @@ pub async fn start_local_server(
                 .unwrap()
         });
 
-    // 静态文件路由
+    // 静态文件路由 (远程 URL 代理)
     let static_route = warp::path("static")
         .and(warp::path::tail())
         .and_then(|tail: warp::path::Tail| async move {
@@ -114,12 +114,22 @@ pub async fn start_local_server(
             handle_static_file(path).await
         });
 
+    // 本地文件服务路由 /local/file/<encoded_path>
+    let local_file_route = warp::path!("local" / "file" / ..)
+        .and(warp::path::tail())
+        .and(warp::filters::header::headers_cloned())
+        .and_then(|tail: warp::path::Tail, headers: warp::http::HeaderMap| async move {
+            let path = tail.as_str();
+            handle_local_file(path, headers).await
+        });
+
     // 组合所有路由（CORS 已手动添加在各响应中）
     let routes = options_route
         .or(proxy_route)
         .or(media_route_get)
         .or(media_route_post)
-        .or(static_route);
+        .or(static_route)
+        .or(local_file_route);
 
     log::info!("[LocalServer] Starting on port {}", LOCAL_SERVER_PORT);
     
@@ -404,6 +414,145 @@ async fn handle_static_file(path: &str) -> Result<impl Reply, Infallible> {
                 .header("Content-Type", "text/plain")
                 .header("Access-Control-Allow-Origin", "*")
                 .body(Body::from(format!("Proxy error: {}", e)))
+                .unwrap())
+        }
+    }
+}
+
+/// 处理本地文件请求，支持 Range 请求
+async fn handle_local_file(
+    path: &str,
+    headers: warp::http::HeaderMap,
+) -> Result<impl Reply, Infallible> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    // URL 解码
+    let decoded_path = match urlencoding::decode(path) {
+        Ok(p) => p.to_string(),
+        Err(_) => {
+            return Ok(Response::builder()
+                .status(400)
+                .header("Content-Type", "text/plain")
+                .header("Access-Control-Allow-Origin", "*")
+                .body(Body::from("Invalid URL encoding"))
+                .unwrap());
+        }
+    };
+
+    log::info!("[LocalServer] Serving local file: {}", decoded_path);
+
+    // 获取文件元数据
+    let metadata = match std::fs::metadata(&decoded_path) {
+        Ok(m) => m,
+        Err(e) => {
+            log::error!("[LocalServer] File not found: {}", e);
+            return Ok(Response::builder()
+                .status(404)
+                .header("Content-Type", "text/plain")
+                .header("Access-Control-Allow-Origin", "*")
+                .body(Body::from(format!("File not found: {}", e)))
+                .unwrap());
+        }
+    };
+
+    let file_size = metadata.len();
+
+    // 获取 MIME 类型
+    let ext = std::path::Path::new(&decoded_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    let mime_type = match ext.as_str() {
+        "mp3" => "audio/mpeg",
+        "flac" => "audio/flac",
+        "wav" => "audio/wav",
+        "ogg" => "audio/ogg",
+        "m4a" => "audio/mp4",
+        "aac" => "audio/aac",
+        "wma" => "audio/x-ms-wma",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mkv" => "video/x-matroska",
+        "mov" => "video/quicktime",
+        "avi" => "video/x-msvideo",
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "pdf" => "application/pdf",
+        _ => "application/octet-stream",
+    };
+
+    // 解析 Range 请求头
+    let range_header = headers.get("range").and_then(|v| v.to_str().ok());
+
+    if let Some(range) = range_header {
+        log::info!("[LocalServer] Range request: {}", range);
+
+        if let Some(range_val) = range.strip_prefix("bytes=") {
+            let parts: Vec<&str> = range_val.split('-').collect();
+            if parts.len() == 2 {
+                let start: u64 = parts[0].parse().unwrap_or(0);
+                let end: u64 = if parts[1].is_empty() {
+                    file_size.saturating_sub(1)
+                } else {
+                    parts[1].parse().unwrap_or(file_size.saturating_sub(1))
+                };
+                let end = end.min(file_size.saturating_sub(1));
+
+                if start <= end && start < file_size {
+                    let length = end - start + 1;
+
+                    match std::fs::File::open(&decoded_path) {
+                        Ok(mut file) => {
+                            if file.seek(SeekFrom::Start(start)).is_ok() {
+                                let mut buffer = vec![0u8; length as usize];
+                                if file.read_exact(&mut buffer).is_ok() {
+                                    let response = Response::builder()
+                                        .status(206)
+                                        .header("Content-Type", mime_type)
+                                        .header("Content-Length", length)
+                                        .header("Content-Range", format!("bytes {}-{}/{}", start, end, file_size))
+                                        .header("Accept-Ranges", "bytes")
+                                        .header("Access-Control-Allow-Origin", "*")
+                                        .body(Body::from(buffer))
+                                        .unwrap();
+                                    return Ok(response);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("[LocalServer] Failed to open file: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 无 Range 请求，返回整个文件
+    match std::fs::read(&decoded_path) {
+        Ok(data) => {
+            let response = Response::builder()
+                .status(200)
+                .header("Content-Type", mime_type)
+                .header("Content-Length", data.len())
+                .header("Accept-Ranges", "bytes")
+                .header("Access-Control-Allow-Origin", "*")
+                .body(Body::from(data))
+                .unwrap();
+            Ok(response)
+        }
+        Err(e) => {
+            log::error!("[LocalServer] Failed to read file: {}", e);
+            Ok(Response::builder()
+                .status(500)
+                .header("Content-Type", "text/plain")
+                .header("Access-Control-Allow-Origin", "*")
+                .body(Body::from(format!("Read failed: {}", e)))
                 .unwrap())
         }
     }
