@@ -26,12 +26,64 @@ pub async fn start_local_server(
     _proxy_settings: Arc<RwLock<Option<ProxySettings>>>,
 ) {
     // API 代理路由 - 普通请求，启用 gzip
-    let proxy_route = warp::path!("api" / "proxy")
+    // POST 方式供前端 JS 使用
+    let proxy_route_post = warp::path!("api" / "proxy")
         .and(warp::post())
         .and(warp::body::json())
         .and(warp::filters::header::headers_cloned())
         .and_then(|req: ProxyRequest, headers: warp::http::HeaderMap| async move {
             handle_proxy_request(req, headers, false).await
+        });
+    
+    // GET 方式供 <img> 等标签直接使用
+    let proxy_route_get = warp::path!("api" / "proxy")
+        .and(warp::get())
+        .and(warp::query::<HashMap<String, String>>())
+        .and(warp::filters::header::headers_cloned())
+        .and_then(|query: HashMap<String, String>, mut headers: warp::http::HeaderMap| async move {
+            let mut target = query.get("url").cloned().unwrap_or_default();
+            if target.is_empty() {
+                let response: Response<Body> = Response::builder()
+                    .status(400)
+                    .header("Content-Type", "text/plain")
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(Body::from("Missing 'url' parameter"))
+                    .unwrap();
+                return Ok::<Box<dyn Reply>, Infallible>(Box::new(response));
+            }
+            
+            // 从查询参数中提取 header_ 开头的自定义 headers
+            let mut custom_headers = HashMap::new();
+            for (key, value) in &query {
+                if key.starts_with("header_") {
+                    let header_name = key.trim_start_matches("header_");
+                    custom_headers.insert(header_name.to_string(), value.clone());
+                }
+            }
+            
+            // 自动设置 Referer（从目标 URL 提取域名）
+            if !custom_headers.contains_key("Referer") && !custom_headers.contains_key("referer") {
+                if !headers.contains_key("referer") && !headers.contains_key("Referer") {
+                    if let Ok(url) = url::Url::parse(&target) {
+                        if url.scheme() != "file" {
+                            if let Some(host) = url.host_str() {
+                                let referer = format!("{}://{}", url.scheme(), host);
+                                log::info!("[LocalServer] Auto-set Referer: {}", referer);
+                                custom_headers.insert("Referer".to_string(), referer);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            let req = ProxyRequest {
+                target,
+                method: Some("GET".to_string()),
+                headers: if custom_headers.is_empty() { None } else { Some(custom_headers) },
+                body: None,
+            };
+            let result = handle_proxy_request(req, headers, false).await;
+            Ok::<Box<dyn Reply>, Infallible>(Box::new(result))
         });
 
     // 媒体代理路由 - 支持 GET (URL参数) 和 POST (JSON body)
@@ -136,7 +188,8 @@ pub async fn start_local_server(
 
     // 组合所有路由（CORS 已手动添加在各响应中）
     let routes = options_route
-        .or(proxy_route)
+        .or(proxy_route_get)
+        .or(proxy_route_post)
         .or(media_route_get)
         .or(media_route_post)
         .or(static_route)

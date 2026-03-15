@@ -500,6 +500,26 @@ export function getMediaProxyUrl(url, headers = {}) {
 }
 
 /**
+ * 获取图片代理 URL
+ * 将远程图片 URL 转换为本地代理 URL，可直接用于 <img> 标签
+ * 使用 /api/proxy 路由（非流式，支持完整的响应处理）
+ * @param {string} url - 原始图片 URL
+ * @param {Object} headers - 可选的自定义 headers（如 Referer, User-Agent 等）
+ * @returns {string} 代理 URL
+ */
+export function getImageProxyUrl(url, headers = {}) {
+  const params = new URLSearchParams();
+  params.append("url", url);
+
+  // 添加自定义 headers 到 URL 参数
+  Object.entries(headers).forEach(([key, value]) => {
+    params.append(`header_${key}`, value);
+  });
+
+  return `http://localhost:19315/api/proxy?${params.toString()}`;
+}
+
+/**
  * 获取本地文件 URL
  * 将本地文件路径转换为可通过 HTTP 访问的 URL
  * @param {string} filePath - 本地文件路径
