@@ -24,7 +24,6 @@ export function createBridge() {
 
     async init() {
       if (window.parent === window) {
-        console.log("[PWA Adapt] Not in iframe");
         return false;
       }
 
@@ -62,11 +61,8 @@ export function createBridge() {
     async invoke(cmd, payload = {}) {
       // 直接使用父窗口的 Tauri 能力
       return new Promise((resolve, reject) => {
-        window.parent.postMessage(
-          { type: "ADAPT_INVOKE", cmd, payload },
-          "*",
-        );
-        
+        window.parent.postMessage({ type: "ADAPT_INVOKE", cmd, payload }, "*");
+
         // 简单的 one-time 监听
         const handler = (e) => {
           if (e.data?.type === "ADAPT_RESULT" && e.data.cmd === cmd) {
@@ -79,7 +75,7 @@ export function createBridge() {
           }
         };
         window.addEventListener("message", handler);
-        
+
         // 30秒超时
         setTimeout(() => {
           window.removeEventListener("message", handler);

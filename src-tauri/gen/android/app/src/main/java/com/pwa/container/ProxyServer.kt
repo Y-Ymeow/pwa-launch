@@ -12,7 +12,7 @@ import java.io.FileInputStream
 class ProxyServer(port: Int = 19315) : NanoHTTPD("localhost", port) {
 
     companion object {
-        const val PORT = 19315
+        const val PORT = 19316
         const val TAG = "ProxyServer"
     }
 

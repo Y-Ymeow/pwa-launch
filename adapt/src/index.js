@@ -16,17 +16,25 @@ import { createStorage, hackIndexedDB, hackLocalStorage } from "./storage.js";
 import { createNetwork, setupXHRProxy, setupImageProxy } from "./network.js";
 import { injectBrowserUI, initVerifyAssist } from "./ui.js";
 import {
-  playAudio, pauseAudio, resumeAudio, stopAudio,
-  setAudioVolume, setAudioLoop, getAudioState, getAudioPosition, getAudioDuration, getAudioCurrentUrl,
-  seekAudio, setAudioProgressCallback, AdaptAudio
+  playAudio,
+  pauseAudio,
+  resumeAudio,
+  stopAudio,
+  setAudioVolume,
+  setAudioLoop,
+  getAudioState,
+  getAudioPosition,
+  getAudioDuration,
+  getAudioCurrentUrl,
+  seekAudio,
+  setAudioProgressCallback,
+  AdaptAudio,
 } from "./audio.js";
 
 (function () {
   // 防止重复注入
   if (window.__TAURI_ADAPT_INJECTED__) return;
   window.__TAURI_ADAPT_INJECTED__ = true;
-
-  console.log("[PWA Adapt] Initializing...");
 
   // ===== 反检测：隐藏 WebView 特征 =====
   (function antiDetect() {
@@ -96,8 +104,6 @@ import {
           configurable: true,
         });
       }
-
-      console.log("[PWA Adapt] Anti-detection applied");
     } catch (e) {
       console.error("[PWA Adapt] Anti-detection failed:", e);
     }
@@ -126,7 +132,7 @@ import {
 
     // 存储
     storage,
-    
+
     // 清除所有 KV 存储（所有应用）
     async clearAllKV() {
       const res = await bridge.invoke("kv_clear", { appId: "*" });
@@ -267,7 +273,6 @@ import {
     const originalOpen = window.open;
     window.open = function (url, target, features) {
       if (url && (url.startsWith("http://") || url.startsWith("https://"))) {
-        console.log("[PWA Adapt] Hijacking window.open:", url);
         tauriBridge.webview.open({ url }).catch((e) => {
           console.error("[PWA Adapt] webview.open failed:", e);
           // 失败时回退到原生 open
@@ -307,6 +312,4 @@ import {
 
   // 暴露文件路径解析
   window.resolve_local_file_url = tauriBridge.resolveLocalFileUrl;
-
-  console.log("[PWA Adapt] Bridge created, waiting for parent...");
 })();

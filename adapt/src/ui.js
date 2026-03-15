@@ -84,27 +84,32 @@ export function createVerifyAssistButton(bridge) {
 
   btn.onclick = async () => {
     btn.innerHTML = "⟳ 同步中...";
-    btn.style.background = "linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important";
+    btn.style.background =
+      "linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important";
 
     try {
       const currentUrl = location.href;
       await bridge.invoke("sync_webview_cookies", { url: currentUrl });
 
       btn.innerHTML = "✓ 同步完成";
-      btn.style.background = "linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important";
+      btn.style.background =
+        "linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important";
 
       setTimeout(() => {
         btn.innerHTML = "✓ 验证完成";
-        btn.style.background = "linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important";
+        btn.style.background =
+          "linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important";
       }, 2000);
     } catch (err) {
       console.error("[PWA Adapt] Failed to sync cookies:", err);
       btn.innerHTML = "✗ 失败";
-      btn.style.background = "linear-gradient(135deg, #eb3349 0%, #f45c43 100%) !important";
+      btn.style.background =
+        "linear-gradient(135deg, #eb3349 0%, #f45c43 100%) !important";
 
       setTimeout(() => {
         btn.innerHTML = "✓ 验证完成";
-        btn.style.background = "linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important";
+        btn.style.background =
+          "linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important";
       }, 2000);
     }
   };
@@ -131,7 +136,9 @@ export function shouldShowVerifyButton() {
     "please wait",
   ];
 
-  return verifyKeywords.some((kw) => title.includes(kw) || bodyText.includes(kw));
+  return verifyKeywords.some(
+    (kw) => title.includes(kw) || bodyText.includes(kw),
+  );
 }
 
 export function initVerifyAssist(bridge) {

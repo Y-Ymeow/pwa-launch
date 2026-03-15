@@ -13,8 +13,6 @@ let progressInterval = null;
  * @param {string} url - 音频 URL
  */
 export async function playAudio(url) {
-  console.log("[PWA Adapt Audio] Playing:", url);
-
   if (window.__TAURI__) {
     try {
       await window.__TAURI__.invoke("audio_play", { url });
@@ -37,8 +35,6 @@ export async function playAudio(url) {
  * 暂停播放
  */
 export function pauseAudio() {
-  console.log("[PWA Adapt Audio] Pause");
-
   if (window.__TAURI__) {
     window.__TAURI__.invoke("audio_pause");
     isPlaying = false;
@@ -54,8 +50,6 @@ export function pauseAudio() {
  * 继续播放
  */
 export function resumeAudio() {
-  console.log("[PWA Adapt Audio] Resume");
-
   if (window.__TAURI__) {
     window.__TAURI__.invoke("audio_resume");
     isPlaying = true;
@@ -71,8 +65,6 @@ export function resumeAudio() {
  * 停止播放
  */
 export function stopAudio() {
-  console.log("[PWA Adapt Audio] Stop");
-
   stopProgressTracking();
 
   if (window.__TAURI__) {
@@ -93,8 +85,6 @@ export function stopAudio() {
  * 设置音量（0.0 - 1.0）
  */
 export function setAudioVolume(volume) {
-  console.log("[PWA Adapt Audio] Set volume:", volume);
-
   if (window.__TAURI__) {
     window.__TAURI__.invoke("audio_set_volume", { volume });
   }
@@ -109,8 +99,6 @@ export function setAudioVolume(volume) {
  * @param {boolean} loop - 是否循环
  */
 export function setAudioLoop(loop) {
-  console.log("[PWA Adapt Audio] Set loop:", loop);
-
   if (window.__TAURI__) {
     window.__TAURI__.invoke("audio_set_loop", { loopPlay: loop });
   }
@@ -287,7 +275,7 @@ function playAudioNative(url) {
 
   audio.addEventListener("canplay", () => {
     console.log("[PWA Adapt Audio] Can play, starting...");
-    audio.play().catch(e => {
+    audio.play().catch((e) => {
       console.error("[PWA Adapt Audio] Play failed:", e);
     });
   });
@@ -351,7 +339,10 @@ export class AdaptAudio {
 
   removeEventListener(event, callback) {
     if (this._listeners[event]) {
-      this._listeners[event] = this._listeners[event].filter(cb => cb !== callback);
+      this._listeners[event] = this._listeners[event].filter(
+        (cb) => cb !== callback,
+      );
     }
   }
 }
+

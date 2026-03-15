@@ -76,7 +76,7 @@ function proxyViaLocalServer(url, method, headers, body, isMedia = false) {
         method,
         headers,
         body,
-        isMedia,  // 标记是否为媒体请求
+        isMedia, // 标记是否为媒体请求
       },
       "*",
     );
@@ -119,7 +119,9 @@ export function createNetwork(bridge) {
 
       // 检测是否是音视频请求（走 /media/proxy 专用路由）
       const isMediaRequest =
-        urlStr.match(/\.(mp3|m4a|ogg|wav|flac|aac|wma|mp4|webm|m4s|ts|m3u8|mpd)(\?.*)?$/i) ||
+        urlStr.match(
+          /\.(mp3|m4a|ogg|wav|flac|aac|wma|mp4|webm|m4s|ts|m3u8|mpd)(\?.*)?$/i,
+        ) ||
         options.headers?.["Accept"]?.startsWith("audio/") ||
         options.headers?.["Accept"]?.startsWith("video/");
 
@@ -127,7 +129,6 @@ export function createNetwork(bridge) {
       if (urlStr.startsWith("http://") || urlStr.startsWith("https://")) {
         // 直接请求，不走代理
         if (isDirectRequest) {
-          console.log("[PWA Adapt] Direct request:", urlStr);
           const cleanOptions = { ...options };
           if (cleanOptions.headers) {
             delete cleanOptions.headers["X-Direct-Request"];
@@ -138,14 +139,11 @@ export function createNetwork(bridge) {
 
         // 流式请求特殊处理
         if (isStreamRequest) {
-          console.log("[PWA Adapt] Stream request:", urlStr);
           return await originalFetch(urlStr, options);
         }
 
         // 音视频请求使用 /media/proxy 路由（禁用 gzip，流式传输）
         if (isMediaRequest) {
-          console.log("[PWA Adapt] Media request via /media/proxy:", urlStr);
-          
           // 设置 headers，自动添加 Referer
           const mediaHeaders = { ...options.headers };
           if (!mediaHeaders["Referer"] && !mediaHeaders["referer"]) {
@@ -156,19 +154,18 @@ export function createNetwork(bridge) {
               mediaHeaders["Referer"] = location.href;
             }
           }
-          
+
           // 使用 postMessage 桥接，传递 isMedia=true
           return await proxyViaLocalServer(
             urlStr,
             options.method || "GET",
             mediaHeaders,
             options.body,
-            true,  // isMedia = true
+            true, // isMedia = true
           );
         }
 
         // 通过父窗口代理请求（本地 HTTP 服务器）
-        console.log("[PWA Adapt] Proxy via parent:", urlStr);
         const headers = { ...options.headers };
 
         // 设置 Referer 为目标 URL 的基础部分（不带末尾斜杠，与 curl 一致）
@@ -281,8 +278,6 @@ export function setupXHRProxy(tauriBridge) {
       try {
         const urlObj = new URL(requestUrl, window.location.href);
         if (urlObj.origin !== window.location.origin) {
-          console.log("[PWA Adapt] XHR proxy:", requestUrl);
-
           if (!tauriBridge._ready) {
             let attempts = 0;
             while (!tauriBridge._ready && attempts < 50) {
@@ -392,7 +387,10 @@ export function setupImageProxy(tauriBridge) {
     img.dataset.intercepted = "true";
 
     // 保存原始 src getter/setter
-    const srcDescriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "src");
+    const srcDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLImageElement.prototype,
+      "src",
+    );
     const originalSrcSetter = srcDescriptor.set;
     const originalSrcGetter = srcDescriptor.get;
 
@@ -403,7 +401,6 @@ export function setupImageProxy(tauriBridge) {
       },
       set(value) {
         const proxiedValue = proxyImageUrl(value);
-        console.log("[PWA Adapt] Image src set:", value, "->", proxiedValue);
         originalSrcSetter.call(this, proxiedValue);
       },
       configurable: true,
@@ -446,8 +443,6 @@ export function setupImageProxy(tauriBridge) {
   }
 
   function initProxy() {
-    console.log("[PWA Adapt] Initializing image proxy (onload)...");
-
     // 拦截页面中所有现有的 img 元素
     document.querySelectorAll("img").forEach(interceptImage);
 

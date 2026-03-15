@@ -43,7 +43,7 @@ function App() {
   } | null>(null);
 
   // 悬浮面板显示状态
-  const [showSwitcherPanel, setShowSwitcherPanel] = useState(true);
+  const [showSwitcherPanel, setShowSwitcherPanel] = useState(false);
 
   const iframesRef = useRef<Record<string, HTMLIFrameElement>>({});
 
