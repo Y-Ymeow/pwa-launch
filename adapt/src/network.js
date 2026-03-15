@@ -475,3 +475,25 @@ export function setupImageProxy(tauriBridge) {
     window.addEventListener("load", initProxy);
   }
 }
+
+/**
+ * 获取媒体代理 URL
+ * 将远程音视频 URL 转换为本地代理 URL，可直接用于 <audio> 或 <video> 标签
+ * @param {string} url - 原始媒体 URL
+ * @returns {string} 代理 URL
+ */
+export function getMediaProxyUrl(url) {
+  const encodedUrl = encodeURIComponent(url);
+  return `http://localhost:${LOCAL_SERVER_PORT}/media/proxy?url=${encodedUrl}`;
+}
+
+/**
+ * 获取本地文件 URL
+ * 将本地文件路径转换为可通过 HTTP 访问的 URL
+ * @param {string} filePath - 本地文件路径
+ * @returns {string} HTTP URL
+ */
+export function getLocalFileUrl(filePath) {
+  const encodedPath = encodeURIComponent(filePath);
+  return `http://localhost:${LOCAL_SERVER_PORT}/local/file/${encodedPath}`;
+}
