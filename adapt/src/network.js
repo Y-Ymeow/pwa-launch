@@ -11,7 +11,6 @@ const generateRequestId = () =>
 
 // 本地服务器配置
 const LOCAL_SERVER_PORT = 19315;
-const PROXY_URL = `http://localhost:${LOCAL_SERVER_PORT}/api/proxy`;
 
 // 通过父窗口代理 HTTP 请求（postMessage -> 父窗口 fetch 本地服务器）
 function proxyViaLocalServer(url, method, headers, body, isMedia = false) {
@@ -61,11 +60,6 @@ function proxyViaLocalServer(url, method, headers, body, isMedia = false) {
       window.removeEventListener("message", handler);
       reject(new Error("Proxy request timeout"));
     }, 30000);
-
-    // 添加 Cache-Control header 防止缓存（不修改 URL）
-    headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
-    headers["Pragma"] = "no-cache";
-    headers["Expires"] = "0";
 
     // 发送代理请求给父窗口，使用 isMedia 标记来选择路由
     window.parent.postMessage(
@@ -147,12 +141,12 @@ export function createNetwork(bridge) {
           // 设置 headers，自动添加 Referer
           const mediaHeaders = { ...options.headers };
           if (!mediaHeaders["Referer"] && !mediaHeaders["referer"]) {
-            try {
-              const urlObj = new URL(urlStr);
-              mediaHeaders["Referer"] = `${urlObj.protocol}//${urlObj.host}`;
-            } catch {
-              mediaHeaders["Referer"] = location.href;
-            }
+            // try {
+            //   const urlObj = new URL(urlStr);
+            //   mediaHeaders["Referer"] = `${urlObj.protocol}//${urlObj.host}`;
+            // } catch {
+            //   mediaHeaders["Referer"] = location.href;
+            // }
           }
 
           // 使用 postMessage 桥接，传递 isMedia=true
@@ -179,7 +173,8 @@ export function createNetwork(bridge) {
         }
 
         // 使用简单的 User-Agent（与 curl 一致）
-        headers["User-Agent"] = "Mozilla/5.0";
+        headers["User-Agent"] =
+          "Mozilla/5.0 (Linux; Android 13; TECNO BG6 Build/TP1A.220624.014) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.7632.159 Mobile Safari/537.36";
 
         // 添加简单的 Accept 头（与 curl 一致）
         if (!headers["Accept"] && !headers["accept"]) {

@@ -156,14 +156,18 @@ async fn handle_proxy_request(
     log::info!("[LocalServer] Received {} request: target={}, method={:?}", 
         if is_media { "media" } else { "proxy" }, req.target, req.method);
 
-    // 创建 client：音视频禁用 gzip，普通请求启用 gzip
+    // 创建 client：音视频禁用 gzip，普通请求启用 gzip，都启用重定向
     let client = if is_media {
         reqwest::Client::builder()
             .no_gzip()
+            .redirect(reqwest::redirect::Policy::limited(10))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new())
     } else {
-        reqwest::Client::new()
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
     };
 
     let method = req.method.unwrap_or_else(|| "GET".to_string());
@@ -249,15 +253,28 @@ async fn handle_proxy_request(
             // 复制响应头
             let mut response_builder = Response::builder().status(status);
             
+            // 检查是否有压缩编码
+            let has_encoding = response
+                .headers()
+                .get("content-encoding")
+                .map(|v| !v.to_str().unwrap_or("").is_empty())
+                .unwrap_or(false);
+
             // 复制需要的响应头（content-type 除外，使用我们修改后的）
             for (key, value) in response.headers() {
                 let key_lower = key.as_str().to_lowercase();
                 // 保留这些头对流媒体很重要（排除 content-type）
+                // 如果有压缩编码，不复制 content-length（解压后会重新计算）
                 if key_lower == "accept-ranges"
                     || key_lower == "content-range"
-                    || key_lower == "content-length"
                     || key_lower == "etag"
                     || key_lower == "last-modified" {
+                    if let Ok(v) = value.to_str() {
+                        response_builder = response_builder.header(key.as_str(), v);
+                    }
+                }
+                // 只有在没有压缩编码时才复制 content-length
+                if key_lower == "content-length" && !has_encoding {
                     if let Ok(v) = value.to_str() {
                         response_builder = response_builder.header(key.as_str(), v);
                     }
@@ -377,8 +394,12 @@ async fn handle_static_file(path: &str) -> Result<impl Reply, Infallible> {
     
     log::info!("[LocalServer] Static file proxy: {}", url);
     
-    // 代理图片请求，确保 gzip 自动解压
-    let client = reqwest::Client::new();
+    // 代理图片请求，reqwest 默认自动跟随重定向（最多 10 次）
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    
     match client.get(&url).send().await {
         Ok(response) => {
             let status = response.status().as_u16();
