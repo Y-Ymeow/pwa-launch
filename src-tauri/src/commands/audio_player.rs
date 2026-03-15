@@ -65,17 +65,36 @@ pub async fn audio_play<R: Runtime>(app: AppHandle<R>, url: String) -> Result<St
 
     #[cfg(not(target_os = "android"))]
     {
-        // Linux: 使用 MPV
-        init_mpv()?;
-
-        let mpv = MPV_INSTANCE.lock().unwrap();
-        if let Some(ref mpv) = *mpv {
-            // 设置 pause=no 确保播放（处理歌曲自然结束后的状态）
-            let _ = mpv.set_property("pause", false);
-            // 直接 loadfile replace，不先 stop
-            mpv.command("loadfile", &[&file_path, "replace"])
-                .map_err(|e| format!("Failed to load file: {:?}", e))?;
+        // Linux: 使用 MPV，每次播放重新创建实例以确保可靠性
+        set_mpv_locale();
+        
+        // 销毁旧实例
+        {
+            let mut guard = MPV_INSTANCE.lock().unwrap();
+            if guard.is_some() {
+                *guard = None;
+            }
         }
+        
+        // 创建新实例
+        let mpv = Mpv::new().map_err(|e| format!("Failed to create MPV: {:?}", e))?;
+        
+        // 配置 MPV
+        let _ = mpv.set_property("vo", "null");
+        let _ = mpv.set_property("force-window", "no");
+        let _ = mpv.set_property("terminal", "no");
+        
+        // 加载并播放文件
+        mpv.command("loadfile", &[&file_path, "replace"])
+            .map_err(|e| format!("Failed to load file: {:?}", e))?;
+        
+        // 保存实例
+        {
+            let mut guard = MPV_INSTANCE.lock().unwrap();
+            *guard = Some(mpv);
+        }
+        
+        log::info!("[MPV] Created new instance and started playing");
     }
     
     #[cfg(target_os = "android")]
