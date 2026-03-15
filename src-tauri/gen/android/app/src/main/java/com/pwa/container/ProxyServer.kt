@@ -380,7 +380,7 @@ class ProxyServer(port: Int = 19315) : NanoHTTPD("localhost", port) {
                 }.coerceAtMost(fileLength - 1)
 
                 if (start > end || start >= fileLength) {
-                    return newFixedLengthResponse(Status.RANGE_NOT_SATISFIABLE, "text/plain", "Invalid range")
+                    return newFixedLengthResponse(Status.lookup(416) ?: Status.BAD_REQUEST, "text/plain", "Invalid range")
                 }
 
                 val length = end - start + 1
