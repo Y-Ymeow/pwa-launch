@@ -300,12 +300,12 @@ async fn handle_proxy_request(
                 let body = Body::wrap_stream(stream);
                 Ok(response_builder.body(body).unwrap())
             } else {
-                // 普通请求：检查并处理 gzip
-                let is_gzip = response
+                // 普通请求：检查并处理 gzip/deflate
+                let encoding = response
                     .headers()
                     .get("content-encoding")
-                    .map(|v| v.to_str().unwrap_or("").contains("gzip"))
-                    .unwrap_or(false);
+                    .map(|v| v.to_str().unwrap_or("").to_lowercase())
+                    .unwrap_or_default();
 
                 let body_bytes = match response.bytes().await {
                     Ok(bytes) => bytes,
@@ -318,8 +318,8 @@ async fn handle_proxy_request(
                     }
                 };
 
-                // 解压 gzip
-                let body = if is_gzip {
+                // 解压 gzip 或 deflate
+                let body = if encoding.contains("gzip") {
                     use std::io::Read;
                     let mut decoder = flate2::read::GzDecoder::new(&body_bytes[..]);
                     let mut decompressed = Vec::new();
@@ -327,6 +327,17 @@ async fn handle_proxy_request(
                         Ok(_) => decompressed,
                         Err(e) => {
                             log::error!("[LocalServer] Failed to decompress gzip: {}", e);
+                            body_bytes.to_vec()
+                        }
+                    }
+                } else if encoding.contains("deflate") {
+                    use std::io::Read;
+                    let mut decoder = flate2::read::ZlibDecoder::new(&body_bytes[..]);
+                    let mut decompressed = Vec::new();
+                    match decoder.read_to_end(&mut decompressed) {
+                        Ok(_) => decompressed,
+                        Err(e) => {
+                            log::error!("[LocalServer] Failed to decompress deflate: {}", e);
                             body_bytes.to_vec()
                         }
                     }

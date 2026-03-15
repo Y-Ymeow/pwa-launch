@@ -24,10 +24,22 @@
           "$HOME/Videos/**",
           "$HOME/音乐/**",
           "$HOME/视频/**",
-          "/computer/Music/.*",
-          "/computer/Music/**",
+          "$HOME/Pictures/**",
+          "$HOME/图片/**",
+          "$HOME/Downloads/**",
+          "$HOME/下载/**",
+          "$HOME/Documents/**",
+          "$HOME/文档/**",
           "/computer/**",
-          "$VIDEO/**"
+          "/computer/Music/**",
+          "/computer/Videos/**",
+          "/computer/Pictures/**",
+          "/computer/Downloads/**",
+          "/computer/Documents/**",
+          "$VIDEO/**",
+          "$PICTURE/**",
+          "$DOCUMENT/**",
+          "$DOWNLOAD/**"
         ]
       }
     }
