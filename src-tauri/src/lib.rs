@@ -122,8 +122,9 @@ pub fn run() {
                 let window = WebviewWindowBuilder::new(app, "main", url)
                     .devtools(true)
                     .build()?;
-                
-                // 设置窗口大小（Tauri v2 API）
+
+                // 设置窗口大小（仅在非 Android 平台）
+                #[cfg(not(target_os = "android"))]
                 let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
                     width: 1200.0,
                     height: 800.0,

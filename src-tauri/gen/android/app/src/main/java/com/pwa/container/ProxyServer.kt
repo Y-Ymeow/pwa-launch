@@ -40,6 +40,7 @@ class ProxyServer(port: Int = 19315) : NanoHTTPD("localhost", port) {
         return when {
             uri.startsWith("/api/proxy") -> handleProxy(session)
             uri.startsWith("/media/proxy") -> handleMediaProxy(session)
+            uri.startsWith("/local/file/") -> handleLocalFile(session)
             uri.startsWith("/static/") -> handleStatic(session)
             uri.startsWith("/image/") -> handleImageProxy(session)
             else -> newFixedLengthResponse(Status.NOT_FOUND, "text/plain", "Not Found")
@@ -333,8 +334,130 @@ class ProxyServer(port: Int = 19315) : NanoHTTPD("localhost", port) {
      */
     private fun handleStatic(session: IHTTPSession): Response {
         // 暂时返回 404，后续可以实现文件读取
-        return newFixedLengthResponse(Status.NOT_IMPLEMENTED, "text/plain", 
+        return newFixedLengthResponse(Status.NOT_IMPLEMENTED, "text/plain",
             "Static file serving not yet implemented")
+    }
+
+    /**
+     * 处理本地文件请求 /local/file/<encoded_path>
+     * 支持 Range 请求用于音视频播放
+     */
+    private fun handleLocalFile(session: IHTTPSession): Response {
+        return try {
+            // 提取文件路径（/local/file/后面的部分）
+            val encodedPath = session.uri.substringAfter("/local/file/")
+            if (encodedPath.isEmpty()) {
+                return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Missing file path")
+            }
+
+            // URL 解码
+            val filePath = java.net.URLDecoder.decode(encodedPath, "UTF-8")
+            Log.d(TAG, "Local file request: $filePath")
+
+            val file = java.io.File(filePath)
+            if (!file.exists() || !file.isFile) {
+                Log.e(TAG, "File not found: $filePath")
+                return newFixedLengthResponse(Status.NOT_FOUND, "text/plain", "File not found")
+            }
+
+            // 获取 MIME 类型
+            val mimeType = getMimeType(filePath)
+
+            // 检查 Range 请求头
+            val rangeHeader = session.headers["range"]
+
+            if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+                // 处理 Range 请求
+                val rangeSpec = rangeHeader.substring(6) // 去掉 "bytes="
+                val parts = rangeSpec.split("-")
+                val fileLength = file.length()
+
+                val start = parts[0].toLongOrNull() ?: 0
+                val end = if (parts.size > 1 && parts[1].isNotEmpty()) {
+                    parts[1].toLongOrNull() ?: (fileLength - 1)
+                } else {
+                    fileLength - 1
+                }.coerceAtMost(fileLength - 1)
+
+                if (start > end || start >= fileLength) {
+                    return newFixedLengthResponse(Status.RANGE_NOT_SATISFIABLE, "text/plain", "Invalid range")
+                }
+
+                val length = end - start + 1
+
+                // 读取指定范围
+                val fis = java.io.FileInputStream(file)
+                fis.skip(start)
+                val buffer = ByteArray(length.toInt())
+                fis.read(buffer)
+                fis.close()
+
+                val response = newFixedLengthResponse(
+                    Status.PARTIAL_CONTENT,
+                    mimeType,
+                    ByteArrayInputStream(buffer),
+                    length
+                )
+
+                response.addHeader("Content-Range", "bytes $start-$end/$fileLength")
+                response.addHeader("Accept-Ranges", "bytes")
+                response.addHeader("Content-Length", length.toString())
+                response.addHeader("Access-Control-Allow-Origin", "*")
+
+                Log.d(TAG, "Range response: bytes $start-$end/$fileLength")
+                response
+
+            } else {
+                // 返回整个文件
+                val fis = java.io.FileInputStream(file)
+                val response = newFixedLengthResponse(
+                    Status.OK,
+                    mimeType,
+                    fis,
+                    file.length()
+                )
+
+                response.addHeader("Accept-Ranges", "bytes")
+                response.addHeader("Content-Length", file.length().toString())
+                response.addHeader("Access-Control-Allow-Origin", "*")
+
+                Log.d(TAG, "Full file response: ${file.length()} bytes")
+                response
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Local file error: ${e.message}", e)
+            newFixedLengthResponse(Status.INTERNAL_ERROR, "application/json",
+                "{\"error\": \"${e.message}\"}")
+        }
+    }
+
+    /**
+     * 根据文件扩展名获取 MIME 类型
+     */
+    private fun getMimeType(filePath: String): String {
+        val ext = filePath.substringAfterLast(".", "").lowercase()
+        return when (ext) {
+            "mp3" -> "audio/mpeg"
+            "flac" -> "audio/flac"
+            "wav" -> "audio/wav"
+            "ogg" -> "audio/ogg"
+            "m4a" -> "audio/mp4"
+            "aac" -> "audio/aac"
+            "wma" -> "audio/x-ms-wma"
+            "mp4" -> "video/mp4"
+            "webm" -> "video/webm"
+            "mkv" -> "video/x-matroska"
+            "mov" -> "video/quicktime"
+            "avi" -> "video/x-msvideo"
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "svg" -> "image/svg+xml"
+            "pdf" -> "application/pdf"
+            else -> "application/octet-stream"
+        }
     }
     
     /**
