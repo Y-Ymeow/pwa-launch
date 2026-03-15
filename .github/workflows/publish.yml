@@ -20,7 +20,7 @@ jobs:
         with:
           work-directories: "src-tauri"
 
-      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libmpv-dev mpv
       - run: bun install
       - run: bun run build
       

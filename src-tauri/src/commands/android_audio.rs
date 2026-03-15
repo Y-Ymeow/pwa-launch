@@ -4,25 +4,37 @@ pub mod android {
     use jni::objects::JString;
     use jni::signature::JavaType;
     use jni::JNIEnv;
+    use jni::JavaVM;
     use tauri::Runtime;
-
-    fn get_env<R: Runtime>(app: &tauri::AppHandle<R>) -> JNIEnv {
-        // 通过 Tauri 获取 JNI 环境
+    
+    fn with_env<F, R>(f: F) -> Option<R>
+    where
+        F: FnOnce(&mut JNIEnv) -> R,
+    {
         unsafe {
-            let vm = tauri::platform::android::vm();
-            let mut env = vm.attach_current_thread().unwrap();
-            env
+            let ctx = ndk_context::android_context();
+            let vm_ptr = ctx.vm();
+            if vm_ptr.is_null() {
+                return None;
+            }
+            let vm = &*(vm_ptr as *const JavaVM);
+            let mut env = vm.attach_current_thread().ok()?;
+            Some(f(&mut env))
         }
     }
 
     /// 播放音频
-    pub fn play<R: Runtime>(app: &tauri::AppHandle<R>, url: &str) -> String {
-        unsafe {
-            let vm = tauri::platform::android::vm();
-            let mut env = vm.attach_current_thread().unwrap();
+    pub fn play<R: Runtime>(_app: &tauri::AppHandle<R>, url: &str) -> String {
+        with_env(|env| {
+            let cls = match env.find_class("com/pwa/container/AudioPlayerBridge") {
+                Ok(cls) => cls,
+                Err(_) => return "Error: Cannot find AudioPlayerBridge class".to_string(),
+            };
             
-            let cls = env.find_class("com/pwa/container/AudioPlayerBridge").unwrap();
-            let url_jstring = env.new_string(url).unwrap();
+            let url_jstring = match env.new_string(url) {
+                Ok(s) => s,
+                Err(_) => return "Error: Cannot create Java string".to_string(),
+            };
             
             let result = env.call_static_method(
                 &cls,
@@ -39,189 +51,119 @@ pub mod android {
                 }
                 Err(e) => format!("JNI Error: {:?}", e),
             }
-        }
+        }).unwrap_or("Error: JNI failed".to_string())
     }
 
     /// 暂停
-    pub fn pause<R: Runtime>(app: &tauri::AppHandle<R>) {
-        unsafe {
-            let vm = tauri::platform::android::vm();
-            let mut env = vm.attach_current_thread().unwrap();
-            
-            let cls = env.find_class("com/pwa/container/AudioPlayerBridge").unwrap();
-            env.call_static_method(
-                &cls,
-                "pause",
-                "()V",
-                &[],
-            ).ok();
-        }
+    pub fn pause<R: Runtime>(_app: &tauri::AppHandle<R>) {
+        let _ = with_env(|env| {
+            if let Ok(cls) = env.find_class("com/pwa/container/AudioPlayerBridge") {
+                let _ = env.call_static_method(&cls, "pause", "()V", &[]);
+            }
+        });
     }
 
     /// 继续
-    pub fn resume<R: Runtime>(app: &tauri::AppHandle<R>) {
-        unsafe {
-            let vm = tauri::platform::android::vm();
-            let mut env = vm.attach_current_thread().unwrap();
-            
-            let cls = env.find_class("com/pwa/container/AudioPlayerBridge").unwrap();
-            env.call_static_method(
-                &cls,
-                "resume",
-                "()V",
-                &[],
-            ).ok();
-        }
+    pub fn resume<R: Runtime>(_app: &tauri::AppHandle<R>) {
+        let _ = with_env(|env| {
+            if let Ok(cls) = env.find_class("com/pwa/container/AudioPlayerBridge") {
+                let _ = env.call_static_method(&cls, "resume", "()V", &[]);
+            }
+        });
     }
 
     /// 停止
-    pub fn stop<R: Runtime>(app: &tauri::AppHandle<R>) {
-        unsafe {
-            let vm = tauri::platform::android::vm();
-            let mut env = vm.attach_current_thread().unwrap();
-            
-            let cls = env.find_class("com/pwa/container/AudioPlayerBridge").unwrap();
-            env.call_static_method(
-                &cls,
-                "stop",
-                "()V",
-                &[],
-            ).ok();
-        }
+    pub fn stop<R: Runtime>(_app: &tauri::AppHandle<R>) {
+        let _ = with_env(|env| {
+            if let Ok(cls) = env.find_class("com/pwa/container/AudioPlayerBridge") {
+                let _ = env.call_static_method(&cls, "stop", "()V", &[]);
+            }
+        });
     }
 
     /// 设置音量
-    pub fn set_volume<R: Runtime>(app: &tauri::AppHandle<R>, volume: f32) {
-        unsafe {
-            let vm = tauri::platform::android::vm();
-            let mut env = vm.attach_current_thread().unwrap();
-            
-            let cls = env.find_class("com/pwa/container/AudioPlayerBridge").unwrap();
-            env.call_static_method(
-                &cls,
-                "setVolume",
-                "(F)V",
-                &[volume.into()],
-            ).ok();
-        }
+    pub fn set_volume<R: Runtime>(_app: &tauri::AppHandle<R>, volume: f32) {
+        let _ = with_env(|env| {
+            if let Ok(cls) = env.find_class("com/pwa/container/AudioPlayerBridge") {
+                let _ = env.call_static_method(&cls, "setVolume", "(F)V", &[volume.into()]);
+            }
+        });
     }
 
     /// 跳转到指定位置
-    pub fn seek<R: Runtime>(app: &tauri::AppHandle<R>, position_ms: u64) {
-        unsafe {
-            let vm = tauri::platform::android::vm();
-            let mut env = vm.attach_current_thread().unwrap();
-            
-            let cls = env.find_class("com/pwa/container/AudioPlayerBridge").unwrap();
-            env.call_static_method(
-                &cls,
-                "seekTo",
-                "(J)V",
-                &[(position_ms as i64).into()],
-            ).ok();
-        }
+    pub fn seek<R: Runtime>(_app: &tauri::AppHandle<R>, position_ms: u64) {
+        let _ = with_env(|env| {
+            if let Ok(cls) = env.find_class("com/pwa/container/AudioPlayerBridge") {
+                let _ = env.call_static_method(&cls, "seekTo", "(J)V", &[(position_ms as i64).into()]);
+            }
+        });
     }
 
     /// 设置循环
-    pub fn set_loop<R: Runtime>(app: &tauri::AppHandle<R>, loop_enabled: bool) {
-        unsafe {
-            let vm = tauri::platform::android::vm();
-            let mut env = vm.attach_current_thread().unwrap();
-            
-            let cls = env.find_class("com/pwa/container/AudioPlayerBridge").unwrap();
-            env.call_static_method(
-                &cls,
-                "setLoop",
-                "(Z)V",
-                &[loop_enabled.into()],
-            ).ok();
-        }
+    pub fn set_loop<R: Runtime>(_app: &tauri::AppHandle<R>, loop_enabled: bool) {
+        let _ = with_env(|env| {
+            if let Ok(cls) = env.find_class("com/pwa/container/AudioPlayerBridge") {
+                let _ = env.call_static_method(&cls, "setLoop", "(Z)V", &[loop_enabled.into()]);
+            }
+        });
     }
 
     /// 获取当前位置
-    pub fn get_position<R: Runtime>(app: &tauri::AppHandle<R>) -> u64 {
-        unsafe {
-            let vm = tauri::platform::android::vm();
-            let mut env = vm.attach_current_thread().unwrap();
-            
-            let cls = env.find_class("com/pwa/container/AudioPlayerBridge").unwrap();
-            let result = env.call_static_method(
-                &cls,
-                "getPosition",
-                "()J",
-                &[],
-            );
-            
-            match result {
-                Ok(val) => val.j().unwrap_or(0) as u64,
-                Err(_) => 0,
+    pub fn get_position<R: Runtime>(_app: &tauri::AppHandle<R>) -> u64 {
+        with_env(|env| {
+            if let Ok(cls) = env.find_class("com/pwa/container/AudioPlayerBridge") {
+                let result = env.call_static_method(&cls, "getPosition", "()J", &[]);
+                if let Ok(val) = result {
+                    if let Ok(long_val) = val.j() {
+                        return long_val as u64;
+                    }
+                }
             }
-        }
+            0
+        }).unwrap_or(0)
     }
 
     /// 获取总时长
-    pub fn get_duration<R: Runtime>(app: &tauri::AppHandle<R>) -> u64 {
-        unsafe {
-            let vm = tauri::platform::android::vm();
-            let mut env = vm.attach_current_thread().unwrap();
-            
-            let cls = env.find_class("com/pwa/container/AudioPlayerBridge").unwrap();
-            let result = env.call_static_method(
-                &cls,
-                "getDuration",
-                "()J",
-                &[],
-            );
-            
-            match result {
-                Ok(val) => val.j().unwrap_or(0) as u64,
-                Err(_) => 0,
+    pub fn get_duration<R: Runtime>(_app: &tauri::AppHandle<R>) -> u64 {
+        with_env(|env| {
+            if let Ok(cls) = env.find_class("com/pwa/container/AudioPlayerBridge") {
+                let result = env.call_static_method(&cls, "getDuration", "()J", &[]);
+                if let Ok(val) = result {
+                    if let Ok(long_val) = val.j() {
+                        return long_val as u64;
+                    }
+                }
             }
-        }
+            0
+        }).unwrap_or(0)
     }
 
     /// 获取当前 URL
-    pub fn get_current_url<R: Runtime>(app: &tauri::AppHandle<R>) -> String {
-        unsafe {
-            let vm = tauri::platform::android::vm();
-            let mut env = vm.attach_current_thread().unwrap();
-            
-            let cls = env.find_class("com/pwa/container/AudioPlayerBridge").unwrap();
-            let result = env.call_static_method(
-                &cls,
-                "getCurrentUrl",
-                "()Ljava/lang/String;",
-                &[],
-            );
-            
-            match result {
-                Ok(obj) => {
+    pub fn get_current_url<R: Runtime>(_app: &tauri::AppHandle<R>) -> String {
+        with_env(|env| {
+            if let Ok(cls) = env.find_class("com/pwa/container/AudioPlayerBridge") {
+                let result = env.call_static_method(&cls, "getCurrentUrl", "()Ljava/lang/String;", &[]);
+                if let Ok(obj) = result {
                     let jstr: JString = obj.l().unwrap().into();
-                    env.get_string(&jstr).unwrap().into()
+                    return env.get_string(&jstr).unwrap().into();
                 }
-                Err(_) => String::new(),
             }
-        }
+            String::new()
+        }).unwrap_or_default()
     }
 
     /// 是否正在播放
-    pub fn is_playing<R: Runtime>(app: &tauri::AppHandle<R>) -> bool {
-        unsafe {
-            let vm = tauri::platform::android::vm();
-            let mut env = vm.attach_current_thread().unwrap();
-            
-            let cls = env.find_class("com/pwa/container/AudioPlayerBridge").unwrap();
-            let result = env.call_static_method(
-                &cls,
-                "isPlaying",
-                "()Z",
-                &[],
-            );
-            
-            match result {
-                Ok(val) => val.z().unwrap_or(false),
-                Err(_) => false,
+    pub fn is_playing<R: Runtime>(_app: &tauri::AppHandle<R>) -> bool {
+        with_env(|env| {
+            if let Ok(cls) = env.find_class("com/pwa/container/AudioPlayerBridge") {
+                let result = env.call_static_method(&cls, "isPlaying", "()Z", &[]);
+                if let Ok(val) = result {
+                    if let Ok(bool_val) = val.z() {
+                        return bool_val;
+                    }
+                }
             }
-        }
+            false
+        }).unwrap_or(false)
     }
 }

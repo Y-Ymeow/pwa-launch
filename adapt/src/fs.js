@@ -167,6 +167,26 @@ export function createFS(bridge) {
     async getFileInfo(filePath) {
       return this.readFileContent(filePath);
     },
+
+    /**
+     * 从 PWA File 对象保存到真实路径
+     * 用于 PWA <input type="file"> 获取的文件
+     */
+    async saveFileFromPWA(file, options = {}) {
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+
+      // 保存到临时目录
+      const tempPath = options.path || `/tmp/pwa-upload/${file.name}`;
+      await this.writeFile(tempPath, uint8Array);
+
+      return {
+        path: tempPath,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      };
+    },
   };
 }
 
@@ -184,34 +204,64 @@ export function setupFilePicker(tauriBridge) {
       }
     }
 
-    const result = await tauriBridge.pickAndResolveLocalFile(options);
+    // 在 Android 上直接使用 Tauri 的文件选择器
+    const isAndroid = navigator.userAgent.toLowerCase().includes('android');
+    
+    try {
+      const result = await tauriBridge.pickAndResolveLocalFile(options);
 
-    if (!result || (Array.isArray(result) && result.length === 0)) {
-      throw new DOMException("No file selected", "AbortError");
+      if (!result || (Array.isArray(result) && result.length === 0)) {
+        throw new DOMException("No file selected", "AbortError");
+      }
+
+      const itemList = Array.isArray(result) ? result : [result];
+
+      return itemList.map((item) => {
+        const filePath = item.path;
+        const fileUrl = item.url;
+        const fileName = filePath.split(/[\\/]/).pop() || "file";
+
+        return {
+          kind: "file",
+          name: fileName,
+          _path: filePath,
+          _url: fileUrl,
+          getFile: async () => {
+            const info = await tauriBridge.getFileInfo(filePath);
+            if (!info) throw new Error(`Failed to read file: ${fileName}`);
+            const file = new File([info.blob], info.name, { type: info.mimeType });
+            file._path = filePath;
+            return file;
+          },
+          getURL: () => fileUrl,
+          getPath: () => filePath,
+        };
+      });
+    } catch (error) {
+      console.error("[PWA Adapt] File picker error:", error);
+      throw new DOMException("File selection failed: " + error.message, "NotAllowedError");
     }
-
-    const itemList = Array.isArray(result) ? result : [result];
-
-    return itemList.map((item) => {
-      const filePath = item.path;
-      const fileUrl = item.url;
-      const fileName = filePath.split(/[\\/]/).pop() || "file";
-
-      return {
-        kind: "file",
-        name: fileName,
-        _path: filePath,
-        _url: fileUrl,
-        getFile: async () => {
-          const info = await tauriBridge.getFileInfo(filePath);
-          if (!info) throw new Error(`Failed to read file: ${fileName}`);
-          const file = new File([info.blob], info.name, { type: info.mimeType });
-          file._path = filePath;
-          return file;
-        },
-        getURL: () => fileUrl,
-        getPath: () => filePath,
-      };
-    });
+  };
+  
+  // 添加直接打开文件选择器的辅助方法
+  window.tauriFilePicker = {
+    async open(options = {}) {
+      try {
+        const result = await tauriBridge.openFileDialog(options);
+        if (result && result.paths && result.paths.length > 0) {
+          return result.paths.map(path => ({
+            kind: "file",
+            name: path.split(/[\\/]/).pop() || "file",
+            _path: path,
+            getPath: () => path,
+            getURL: () => `file://${path}`,
+          }));
+        }
+        return [];
+      } catch (e) {
+        console.error("[PWA Adapt] tauriFilePicker.open error:", e);
+        return [];
+      }
+    }
   };
 }

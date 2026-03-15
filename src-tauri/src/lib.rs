@@ -122,12 +122,16 @@ pub fn run() {
                 #[cfg(not(dev))]
                 let url = WebviewUrl::App(std::path::PathBuf::from("/"));
 
-                WebviewWindowBuilder::new(app, "main", url)
-                    .title("PWA Container")
-                    .inner_size(1200.0, 800.0)
+                let window = WebviewWindowBuilder::new(app, "main", url)
                     .center()
                     .devtools(true)
                     .build()?;
+                
+                // 设置窗口大小（Tauri v2 API）
+                let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+                    width: 1200.0,
+                    height: 800.0,
+                }));
 
                 Ok(())
             })

@@ -19,7 +19,7 @@ lazy_static::lazy_static! {
 // 设置 MPV 需要的 C locale (Linux only)
 #[cfg(not(target_os = "android"))]
 fn set_mpv_locale() {
-    std::env::set_var("LC_ALL", "C");
+    std::env::set_var("LC_NUMERIC", "C");
 }
 
 /// 初始化 MPV (Linux only)
