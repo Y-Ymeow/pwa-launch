@@ -54,14 +54,15 @@ android {
             }
         }
         getByName("release") {
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
             isMinifyEnabled = true
-            
+
             // 动态关联签名
             val keyPropertiesFile = rootProject.file("key.properties")
             if (keyPropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
-            
+
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
