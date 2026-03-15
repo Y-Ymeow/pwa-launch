@@ -234,6 +234,30 @@ async fn handle_proxy_request(
                 .unwrap_or("application/octet-stream")
                 .to_string();
             
+            // 如果 content-type 是通用的 octet-stream，尝试从 URL 推断
+            if content_type == "application/octet-stream" {
+                let target_lower = req.target.to_lowercase();
+                let inferred = if target_lower.ends_with(".jpg") || target_lower.ends_with(".jpeg") {
+                    "image/jpeg"
+                } else if target_lower.ends_with(".png") {
+                    "image/png"
+                } else if target_lower.ends_with(".gif") {
+                    "image/gif"
+                } else if target_lower.ends_with(".webp") {
+                    "image/webp"
+                } else if target_lower.ends_with(".mp4") {
+                    "video/mp4"
+                } else if target_lower.ends_with(".mp3") {
+                    "audio/mpeg"
+                } else {
+                    &content_type
+                };
+                if inferred != &content_type {
+                    log::info!("[LocalServer] Inferred content-type from URL: {} -> {}", content_type, inferred);
+                    content_type = inferred.to_string();
+                }
+            }
+            
             // 对于 audio/mpeg，尝试使用 audio/mp3 以兼容 WebKitGTK
             // if content_type == "audio/mpeg" {
             //     content_type = "audio/mp3".to_string();
@@ -433,14 +457,33 @@ async fn handle_static_file(path: &str) -> Result<impl Reply, Infallible> {
                 }
             };
             
+            // 从 URL 推断 MIME 类型
+            let mime_type = if let Some(ct) = headers.get("content-type") {
+                ct.clone()
+            } else {
+                // 从 URL 扩展名推断
+                let ext = url.split('.').last().unwrap_or("").to_lowercase();
+                match ext.as_str() {
+                    "jpg" | "jpeg" => "image/jpeg",
+                    "png" => "image/png",
+                    "gif" => "image/gif",
+                    "webp" => "image/webp",
+                    "bmp" => "image/bmp",
+                    "svg" => "image/svg+xml",
+                    _ => "application/octet-stream",
+                }.to_string()
+            };
+            
             let mut response_builder = Response::builder().status(status);
             
-            // 复制内容类型等头（排除编码相关头，因为 reqwest 会自动解压）
-            if let Some(ct) = headers.get("content-type") {
-                response_builder = response_builder.header("Content-Type", ct);
-            }
+            // 设置内容类型
+            response_builder = response_builder.header("Content-Type", mime_type);
+            
+            // 设置内容长度
             if let Some(cl) = headers.get("content-length") {
                 response_builder = response_builder.header("Content-Length", cl);
+            } else {
+                response_builder = response_builder.header("Content-Length", body_bytes.len().to_string());
             }
             
             // 添加 CORS 头

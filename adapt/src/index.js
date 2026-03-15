@@ -13,7 +13,12 @@ import {
 } from "./core.js";
 import { createFS, setupFilePicker } from "./fs.js";
 import { createStorage, hackIndexedDB, hackLocalStorage } from "./storage.js";
-import { createNetwork, setupXHRProxy, setupImageProxy } from "./network.js";
+import {
+  createNetwork,
+  setupXHRProxy,
+  setupImageProxy,
+  getMediaProxyUrl,
+} from "./network.js";
 import { injectBrowserUI, initVerifyAssist } from "./ui.js";
 import {
   playAudio,
@@ -129,6 +134,7 @@ import {
     pickAndResolveLocalFile: fs.pickAndResolveLocalFile,
     getFileInfo: fs.getFileInfo,
     readFileRange: fs.readFileRange,
+    getMediaProxyUrl: getMediaProxyUrl,
 
     // 存储
     storage,
@@ -312,4 +318,6 @@ import {
 
   // 暴露文件路径解析
   window.resolve_local_file_url = tauriBridge.resolveLocalFileUrl;
+  window.get_media_proxy_url = tauriBridge.getMediaProxyUrl;
+  window.getMediaProxyUrl = getMediaProxyUrl;
 })();

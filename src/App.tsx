@@ -107,6 +107,10 @@ function App() {
         });
         try {
           // 把所有请求参数放在 body 里传给代理服务器
+          // 如果url是本地服务
+          if (url.startsWith("http://localhost:19315")) {
+            return await fetch(url);
+          }
           // 父窗口的 fetch 只设置 Content-Type，不设置自定义 headers（避免浏览器拦截）
           const proxyBodyObj = {
             target: url,

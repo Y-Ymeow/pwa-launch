@@ -476,13 +476,13 @@ export function setupImageProxy(tauriBridge) {
 export function getMediaProxyUrl(url, headers = {}) {
   const params = new URLSearchParams();
   params.append("url", url);
-  
+
   // 添加自定义 headers 到 URL 参数
   Object.entries(headers).forEach(([key, value]) => {
     params.append(`header_${key}`, value);
   });
-  
-  return `http://localhost:${LOCAL_SERVER_PORT}/media/proxy?${params.toString()}`;
+
+  return `http://localhost:19315/media/proxy?${params.toString()}`;
 }
 
 /**
@@ -493,5 +493,5 @@ export function getMediaProxyUrl(url, headers = {}) {
  */
 export function getLocalFileUrl(filePath) {
   const encodedPath = encodeURIComponent(filePath);
-  return `http://localhost:${LOCAL_SERVER_PORT}/local/file/${encodedPath}`;
+  return `http://localhost:19315/local/file/${encodedPath}`;
 }
