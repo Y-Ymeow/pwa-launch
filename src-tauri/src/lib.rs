@@ -106,10 +106,10 @@ pub fn run() {
                 app.manage(proxy_settings.clone());
 
                 // 启动本地 HTTP 服务器（Linux/Windows/macOS）
-                #[cfg(not(target_os = "android"))]
-                {
+                // #[cfg(not(target_os = "android"))]
+                // {
                     local_server::start_local_server(cookie_store, proxy_settings).await;
-                }
+                // }
 
                 // 创建主窗口
                 // dev 模式使用 Vite 端口（有热重载）
