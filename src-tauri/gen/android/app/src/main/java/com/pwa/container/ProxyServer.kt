@@ -2,373 +2,50 @@ package com.pwa.container
 
 import android.util.Log
 import fi.iki.elonen.NanoHTTPD
-import fi.iki.elonen.NanoHTTPD.Response.Status
-import org.json.JSONObject
 import java.io.ByteArrayInputStream
-import java.net.HttpURLConnection
-import java.net.URL
-import java.util.concurrent.Executors
+import java.io.File
+import java.io.FileInputStream
 
 /**
  * 本地 HTTP 代理服务器
- * 用于替代 fetch:// 和 static:// 协议，解决并发阻塞和 Range 请求问题
  */
 class ProxyServer(port: Int = 19315) : NanoHTTPD("localhost", port) {
-    
-    private val executor = Executors.newFixedThreadPool(4)
-    private val TAG = "ProxyServer"
-    
+
     companion object {
         const val PORT = 19315
+        const val TAG = "ProxyServer"
     }
-    
-    init {
-        // 设置线程池处理并发请求
-        setAsyncRunner(object : NanoHTTPD.AsyncRunner {
-            override fun exec(code: Runnable) {
-                executor.execute(code)
-            }
-        })
-    }
-    
+
     override fun serve(session: IHTTPSession): Response {
         val uri = session.uri
-        val method = session.method
-        
-        Log.d(TAG, "Request: $method $uri")
-        
+        Log.d(TAG, "Request: $uri")
+
         return when {
-            uri.startsWith("/api/proxy") -> handleProxy(session)
-            uri.startsWith("/media/proxy") -> handleMediaProxy(session)
             uri.startsWith("/local/file/") -> handleLocalFile(session)
-            uri.startsWith("/static/") -> handleStatic(session)
-            uri.startsWith("/image/") -> handleImageProxy(session)
-            else -> newFixedLengthResponse(Status.NOT_FOUND, "text/plain", "Not Found")
+            else -> newFixedLengthResponse("OK")
         }
-    }
-    
-    /**
-     * 处理代理请求 /api/proxy
-     */
-    private fun handleProxy(session: IHTTPSession): Response {
-        return try {
-            // 读取请求体
-            val body = HashMap<String, String>()
-            session.parseBody(body)
-            
-            val jsonBody = body["postData"] ?: "{}"
-            val request = JSONObject(jsonBody)
-            
-            val targetUrl = request.getString("target")
-            val httpMethod = request.optString("method", "GET")
-            val headers = request.optJSONObject("headers")
-            val requestBody = request.optString("body", null)
-            
-            // 获取 Range 头
-            val rangeHeader = session.headers["range"]
-            
-            // 执行代理请求
-            proxyHttpRequest(targetUrl, httpMethod, headers, requestBody, rangeHeader)
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Proxy error: ${e.message}", e)
-            newFixedLengthResponse(Status.INTERNAL_ERROR, "application/json", 
-                "{\"error\": \"${e.message}\"}")
-        }
-    }
-    
-    /**
-     * 处理媒体代理请求 /media/proxy (GET/POST)
-     */
-    private fun handleMediaProxy(session: IHTTPSession): Response {
-        return try {
-            val method = session.method
-            val targetUrl: String
-            
-            if (method == Method.GET) {
-                // GET 方式: 从 URL 参数获取
-                val params = HashMap<String, String>()
-                session.parseBody(params)
-                targetUrl = params["url"] ?: session.parameters["url"]?.firstOrNull() ?: ""
-                
-                if (targetUrl.isEmpty()) {
-                    return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Missing 'url' parameter")
-                }
-            } else {
-                // POST 方式: 从 body 获取
-                val body = HashMap<String, String>()
-                session.parseBody(body)
-                val jsonBody = body["postData"] ?: "{}"
-                val request = JSONObject(jsonBody)
-                targetUrl = request.getString("target")
-            }
-            
-            Log.d(TAG, "Media proxy: $targetUrl")
-            
-            // 自动设置 Referer
-            val extraHeaders = HashMap<String, String>()
-            try {
-                val url = URL(targetUrl)
-                if (url.protocol.startsWith("http")) {
-                    extraHeaders["Referer"] = "${url.protocol}://${url.host}"
-                }
-            } catch (e: Exception) {
-                // 忽略解析错误
-            }
-            
-            // 流式传输，不分段读取
-            proxyMediaStream(targetUrl, extraHeaders)
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Media proxy error: ${e.message}", e)
-            newFixedLengthResponse(Status.INTERNAL_ERROR, "application/json",
-                "{\"error\": \"${e.message}\"}")
-        }
-    }
-    
-    /**
-     * 代理媒体流（支持大文件）
-     */
-    private fun proxyMediaStream(targetUrl: String, extraHeaders: Map<String, String>): Response {
-        var connection: HttpURLConnection? = null
-        
-        return try {
-            val url = URL(targetUrl)
-            connection = url.openConnection() as HttpURLConnection
-            
-            connection.requestMethod = "GET"
-            connection.connectTimeout = 30000
-            connection.readTimeout = 60000
-            connection.doInput = true
-            
-            // 添加额外请求头
-            extraHeaders.forEach { (key, value) ->
-                connection.setRequestProperty(key, value)
-            }
-            
-            // 获取响应
-            val statusCode = connection.responseCode
-            val contentType = connection.contentType ?: "application/octet-stream"
-            val contentLength = connection.contentLength
-            
-            // 使用流式响应（支持大文件）
-            val inputStream = if (statusCode >= 400) {
-                connection.errorStream
-            } else {
-                connection.inputStream
-            }
-            
-            val response = if (contentLength > 0) {
-                newFixedLengthResponse(
-                    Status.lookup(statusCode) ?: Status.OK,
-                    contentType,
-                    inputStream,
-                    contentLength.toLong()
-                )
-            } else {
-                // chunked 传输
-                newChunkedResponse(
-                    Status.lookup(statusCode) ?: Status.OK,
-                    contentType,
-                    inputStream
-                )
-            }
-            
-            // 添加响应头
-            connection.headerFields.forEach { (key, values) ->
-                key?.let { k ->
-                    if (k !in setOf("Transfer-Encoding", "Content-Encoding")) {
-                        response.addHeader(k, values?.joinToString(", ") ?: "")
-                    }
-                }
-            }
-            
-            // 添加 CORS 头
-            response.addHeader("Access-Control-Allow-Origin", "*")
-            response.addHeader("Access-Control-Allow-Methods", "GET, OPTIONS")
-            response.addHeader("Accept-Ranges", "bytes")
-            
-            Log.d(TAG, "Media response: $statusCode, type=$contentType")
-            response
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Media stream error: ${e.message}", e)
-            newFixedLengthResponse(Status.INTERNAL_ERROR, "application/json",
-                "{\"error\": \"${e.message}\"}")
-        }
-    }
-    
-    /**
-     * 处理图片代理 /image/
-     */
-    private fun handleImageProxy(session: IHTTPSession): Response {
-        return try {
-            // 提取图片 URL（/image/后面的部分）
-            val encodedUrl = session.uri.substringAfter("/image/")
-            if (encodedUrl.isEmpty()) {
-                return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Missing image URL")
-            }
-            
-            // URL 解码
-            val imageUrl = java.net.URLDecoder.decode(encodedUrl, "UTF-8")
-            Log.d(TAG, "Image proxy: $imageUrl")
-            
-            // 复用媒体代理，但添加图片专用的 headers
-            val extraHeaders = HashMap<String, String>()
-            extraHeaders["Accept"] = "image/webp,image/apng,image/*,*/*;q=0.8"
-            extraHeaders["User-Agent"] = "Mozilla/5.0 (Linux; Android 10)"
-            
-            proxyMediaStream(imageUrl, extraHeaders)
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Image proxy error: ${e.message}", e)
-            newFixedLengthResponse(Status.INTERNAL_ERROR, "application/json",
-                "{\"error\": \"${e.message}\"}")
-        }
-    }
-    
-    /**
-     * 代理 HTTP 请求到目标服务器
-     */
-    private fun proxyHttpRequest(
-        targetUrl: String,
-        method: String,
-        headers: JSONObject?,
-        body: String?,
-        rangeHeader: String?
-    ): Response {
-        var connection: HttpURLConnection? = null
-        
-        return try {
-            val url = URL(targetUrl)
-            connection = url.openConnection() as HttpURLConnection
-            
-            // 设置请求方法
-            connection.requestMethod = method
-            
-            // 设置超时
-            connection.connectTimeout = 30000
-            connection.readTimeout = 30000
-            
-            // 允许输入输出
-            connection.doInput = true
-            connection.doOutput = body != null
-            
-            // 复制请求头
-            headers?.let {
-                for (key in it.keys()) {
-                    connection.setRequestProperty(key, it.getString(key))
-                }
-            }
-            
-            // 添加 Range 头（用于音视频分段请求）
-            rangeHeader?.let {
-                connection.setRequestProperty("Range", it)
-                Log.d(TAG, "Range request: $it")
-            }
-            
-            // 发送请求体
-            body?.let {
-                connection.outputStream.use { os ->
-                    os.write(it.toByteArray(Charsets.UTF_8))
-                    os.flush()
-                }
-            }
-            
-            // 获取响应
-            val statusCode = connection.responseCode
-            val responseHeaders = HashMap<String, String>()
-            
-            connection.headerFields.forEach { (key, values) ->
-                key?.let { k ->
-                    responseHeaders[k] = values?.joinToString(", ") ?: ""
-                }
-            }
-            
-            // 读取响应体
-            val inputStream = if (statusCode >= 400) {
-                connection.errorStream
-            } else {
-                connection.inputStream
-            }
-            
-            val responseBytes = inputStream?.readBytes() ?: byteArrayOf()
-            
-            // 获取 Content-Type
-            val contentType = responseHeaders["Content-Type"] ?: "application/octet-stream"
-            
-            // 创建响应
-            val response = newFixedLengthResponse(
-                Status.lookup(statusCode) ?: Status.OK,
-                contentType,
-                ByteArrayInputStream(responseBytes),
-                responseBytes.size.toLong()
-            )
-            
-            // 添加响应头
-            responseHeaders.forEach { (key, value) ->
-                if (key !in setOf("Transfer-Encoding", "Content-Encoding", "Content-Length")) {
-                    response.addHeader(key, value)
-                }
-            }
-            
-            // 添加 CORS 头
-            response.addHeader("Access-Control-Allow-Origin", "*")
-            response.addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-            response.addHeader("Access-Control-Allow-Headers", "*")
-            
-            Log.d(TAG, "Proxy response: $statusCode, ${responseBytes.size} bytes")
-            response
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "HTTP request error: ${e.message}", e)
-            newFixedLengthResponse(Status.INTERNAL_ERROR, "application/json",
-                "{\"error\": \"${e.message}\"}")
-        } finally {
-            connection?.disconnect()
-        }
-    }
-    
-    /**
-     * 处理静态文件请求 /static/*
-     */
-    private fun handleStatic(session: IHTTPSession): Response {
-        // 暂时返回 404，后续可以实现文件读取
-        return newFixedLengthResponse(Status.NOT_IMPLEMENTED, "text/plain",
-            "Static file serving not yet implemented")
     }
 
-    /**
-     * 处理本地文件请求 /local/file/<encoded_path>
-     * 支持 Range 请求用于音视频播放
-     */
     private fun handleLocalFile(session: IHTTPSession): Response {
         return try {
-            // 提取文件路径（/local/file/后面的部分）
             val encodedPath = session.uri.substringAfter("/local/file/")
             if (encodedPath.isEmpty()) {
-                return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Missing file path")
+                return newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Missing file path")
             }
 
-            // URL 解码
             val filePath = java.net.URLDecoder.decode(encodedPath, "UTF-8")
             Log.d(TAG, "Local file request: $filePath")
 
-            val file = java.io.File(filePath)
+            val file = File(filePath)
             if (!file.exists() || !file.isFile) {
-                Log.e(TAG, "File not found: $filePath")
-                return newFixedLengthResponse(Status.NOT_FOUND, "text/plain", "File not found")
+                return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "File not found")
             }
 
-            // 获取 MIME 类型
             val mimeType = getMimeType(filePath)
-
-            // 检查 Range 请求头
             val rangeHeader = session.headers["range"]
 
             if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
-                // 处理 Range 请求
-                val rangeSpec = rangeHeader.substring(6) // 去掉 "bytes="
+                val rangeSpec = rangeHeader.substring(6)
                 val parts = rangeSpec.split("-")
                 val fileLength = file.length()
 
@@ -380,41 +57,35 @@ class ProxyServer(port: Int = 19315) : NanoHTTPD("localhost", port) {
                 }.coerceAtMost(fileLength - 1)
 
                 if (start > end || start >= fileLength) {
-                    val errRes = newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Invalid range")
+                    val errRes = newFixedLengthResponse(Response.Status.BAD_REQUEST, "text/plain", "Invalid range")
                     errRes.addHeader("Content-Range", "bytes */$fileLength")
                     return errRes
                 }
 
                 val length = end - start + 1
-
-                // 读取指定范围
-                val fis = java.io.FileInputStream(file)
+                val fis = FileInputStream(file)
                 fis.skip(start)
                 val buffer = ByteArray(length.toInt())
                 fis.read(buffer)
                 fis.close()
 
-                // 创建 206 Partial Content 响应（使用 200 OK + Content-Range）
                 val response = newFixedLengthResponse(
-                    Status.OK,
+                    Response.Status.OK,
                     mimeType,
                     ByteArrayInputStream(buffer),
                     length
                 )
-                
+
                 response.addHeader("Content-Range", "bytes $start-$end/$fileLength")
                 response.addHeader("Accept-Ranges", "bytes")
                 response.addHeader("Content-Length", length.toString())
                 response.addHeader("Access-Control-Allow-Origin", "*")
 
-                Log.d(TAG, "Range response: bytes $start-$end/$fileLength")
                 response
-
             } else {
-                // 返回整个文件
-                val fis = java.io.FileInputStream(file)
+                val fis = FileInputStream(file)
                 val response = newFixedLengthResponse(
-                    Status.OK,
+                    Response.Status.OK,
                     mimeType,
                     fis,
                     file.length()
@@ -424,20 +95,15 @@ class ProxyServer(port: Int = 19315) : NanoHTTPD("localhost", port) {
                 response.addHeader("Content-Length", file.length().toString())
                 response.addHeader("Access-Control-Allow-Origin", "*")
 
-                Log.d(TAG, "Full file response: ${file.length()} bytes")
                 response
             }
-
         } catch (e: Exception) {
             Log.e(TAG, "Local file error: ${e.message}", e)
-            newFixedLengthResponse(Status.INTERNAL_ERROR, "application/json",
+            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
                 "{\"error\": \"${e.message}\"}")
         }
     }
 
-    /**
-     * 根据文件扩展名获取 MIME 类型
-     */
     private fun getMimeType(filePath: String): String {
         val ext = filePath.substringAfterLast(".", "").lowercase()
         return when (ext) {
@@ -457,37 +123,7 @@ class ProxyServer(port: Int = 19315) : NanoHTTPD("localhost", port) {
             "png" -> "image/png"
             "gif" -> "image/gif"
             "webp" -> "image/webp"
-            "svg" -> "image/svg+xml"
-            "pdf" -> "application/pdf"
             else -> "application/octet-stream"
         }
-    }
-    
-    /**
-     * 处理 CORS 预检请求
-     */
-    override fun serveAsync(
-        uri: String,
-        method: Method,
-        header: Map<String, String>,
-        session: IHTTPSession,
-        response: AsyncRunner
-    ): Response {
-        // 处理 OPTIONS 预检请求
-        if (method == Method.OPTIONS) {
-            val res = newFixedLengthResponse(Status.OK, "text/plain", "")
-            res.addHeader("Access-Control-Allow-Origin", "*")
-            res.addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-            res.addHeader("Access-Control-Allow-Headers", "*")
-            res.addHeader("Access-Control-Max-Age", "86400")
-            return res
-        }
-        
-        return super.serveAsync(uri, method, header, session, response)
-    }
-    
-    override fun stop() {
-        super.stop()
-        executor.shutdown()
     }
 }
