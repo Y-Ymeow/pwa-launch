@@ -60,14 +60,25 @@ pub async fn start_local_server(
                 log::info!("[LocalServer] Converted local path to URL: {}", target);
             }
             
+            // 从查询参数中提取 header_ 开头的自定义 headers
+            let mut custom_headers = HashMap::new();
+            for (key, value) in &query {
+                if key.starts_with("header_") {
+                    let header_name = key.trim_start_matches("header_");
+                    custom_headers.insert(header_name.to_string(), value.clone());
+                }
+            }
+            
             // 自动设置 Referer（从目标 URL 提取域名，本地文件除外）
-            if !headers.contains_key("referer") && !headers.contains_key("Referer") {
-                if let Ok(url) = url::Url::parse(&target) {
-                    if url.scheme() != "file" {
-                        if let Some(host) = url.host_str() {
-                            let referer = format!("{}://{}", url.scheme(), host);
-                            headers.insert("referer", referer.parse().unwrap());
-                            log::info!("[LocalServer] Auto-set Referer: {}", referer);
+            if !custom_headers.contains_key("Referer") && !custom_headers.contains_key("referer") {
+                if !headers.contains_key("referer") && !headers.contains_key("Referer") {
+                    if let Ok(url) = url::Url::parse(&target) {
+                        if url.scheme() != "file" {
+                            if let Some(host) = url.host_str() {
+                                let referer = format!("{}://{}", url.scheme(), host);
+                                custom_headers.insert("Referer".to_string(), referer);
+                                log::info!("[LocalServer] Auto-set Referer: {}", referer);
+                            }
                         }
                     }
                 }
@@ -76,7 +87,7 @@ pub async fn start_local_server(
             let req = ProxyRequest {
                 target,
                 method: Some("GET".to_string()),
-                headers: None,
+                headers: if custom_headers.is_empty() { None } else { Some(custom_headers) },
                 body: None,
             };
             let result = handle_proxy_request(req, headers, true).await;

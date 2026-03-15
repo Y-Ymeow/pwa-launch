@@ -470,11 +470,19 @@ export function setupImageProxy(tauriBridge) {
  * 获取媒体代理 URL
  * 将远程音视频 URL 转换为本地代理 URL，可直接用于 <audio> 或 <video> 标签
  * @param {string} url - 原始媒体 URL
+ * @param {Object} headers - 可选的自定义 headers（如 Referer, User-Agent 等）
  * @returns {string} 代理 URL
  */
-export function getMediaProxyUrl(url) {
-  const encodedUrl = encodeURIComponent(url);
-  return `http://localhost:${LOCAL_SERVER_PORT}/media/proxy?url=${encodedUrl}`;
+export function getMediaProxyUrl(url, headers = {}) {
+  const params = new URLSearchParams();
+  params.append("url", url);
+  
+  // 添加自定义 headers 到 URL 参数
+  Object.entries(headers).forEach(([key, value]) => {
+    params.append(`header_${key}`, value);
+  });
+  
+  return `http://localhost:${LOCAL_SERVER_PORT}/media/proxy?${params.toString()}`;
 }
 
 /**
