@@ -46,6 +46,8 @@ android {
             isDebuggable = true
             isJniDebuggable = true
             isMinifyEnabled = false
+            // Debug 版本使用不同的包名，可与 Release 共存
+            applicationIdSuffix = ".debug"
             packaging {
                 jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
                 jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")
