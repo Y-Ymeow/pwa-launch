@@ -46,14 +46,22 @@ fn init_mpv() -> Result<(), String> {
 /// 播放音频
 #[tauri::command]
 pub async fn audio_play<R: Runtime>(app: AppHandle<R>, url: String) -> Result<String, String> {
-    // 处理本地文件路径
-    let url = if url.starts_with('/') {
-        format!("file://{}", url)
+    // 处理 URL，提取实际文件路径或保持 HTTP URL
+    let file_path = if url.starts_with("file://") {
+        // 提取 file:// 后的实际路径
+        url[7..].to_string()
+    } else if url.starts_with("http://") || url.starts_with("https://") {
+        // HTTP URL，直接使用（MPV 支持网络流媒体）
+        url
+    } else if url.starts_with('/') {
+        // 绝对路径，直接使用
+        url
     } else {
+        // 相对路径或其他格式，保持不变
         url
     };
     
-    log::info!("[Audio] Playing: {}", url);
+    log::info!("[Audio] Playing: {}", file_path);
 
     #[cfg(not(target_os = "android"))]
     {
@@ -63,7 +71,7 @@ pub async fn audio_play<R: Runtime>(app: AppHandle<R>, url: String) -> Result<St
         let mpv = MPV_INSTANCE.lock().unwrap();
         if let Some(ref mpv) = *mpv {
             let _ = mpv.command("stop", &[]);
-            mpv.command("loadfile", &[&url, "replace"])
+            mpv.command("loadfile", &[&file_path, "replace"])
                 .map_err(|e| format!("Failed to load file: {:?}", e))?;
         }
     }
@@ -72,11 +80,11 @@ pub async fn audio_play<R: Runtime>(app: AppHandle<R>, url: String) -> Result<St
     {
         // Android: 通过 JNI 调用 ExoPlayer
         use crate::commands::android_audio::android;
-        android::play(&app, &url);
+        android::play(&app, &file_path);
     }
     
     if let Ok(mut url_guard) = CURRENT_URL.lock() {
-        *url_guard = url;
+        *url_guard = file_path;
     }
 
     Ok("Playing".to_string())

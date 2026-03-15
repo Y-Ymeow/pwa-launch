@@ -120,7 +120,6 @@ pub fn run() {
                 let url = WebviewUrl::App(std::path::PathBuf::from("/"));
 
                 let window = WebviewWindowBuilder::new(app, "main", url)
-                    .center()
                     .devtools(true)
                     .build()?;
                 
