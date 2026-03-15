@@ -114,7 +114,10 @@ pub fn run() {
                 // 创建主窗口
                 // dev 模式使用 Vite 端口（有热重载）
                 #[cfg(dev)]
-                let url = WebviewUrl::External("http://localhost:1420".parse().unwrap());
+                let dev_url = std::env::var("TAURI_DEV_HOST")
+                    .unwrap_or_else(|_| "localhost:1420".to_string());
+                #[cfg(dev)]
+                let url = WebviewUrl::External(format!("http://{}", dev_url).parse().unwrap());
                 // release 模式使用打包后的前端文件
                 #[cfg(not(dev))]
                 let url = WebviewUrl::App(std::path::PathBuf::from("/"));
