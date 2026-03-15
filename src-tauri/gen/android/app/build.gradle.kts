@@ -43,11 +43,10 @@ android {
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
+            manifestPlaceholders["appName"] = "PWA Debug"
             isDebuggable = true
             isJniDebuggable = true
             isMinifyEnabled = false
-            // Debug 版本使用不同的包名，可与 Release 共存
-            applicationIdSuffix = ".debug"
             packaging {
                 jniLibs.keepDebugSymbols.add("*/arm64-v8a/*.so")
                 jniLibs.keepDebugSymbols.add("*/armeabi-v7a/*.so")
@@ -57,6 +56,7 @@ android {
         }
         getByName("release") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
+            manifestPlaceholders["appName"] = "PWA Container"
             isMinifyEnabled = true
 
             // 动态关联签名
