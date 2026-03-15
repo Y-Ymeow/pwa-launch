@@ -27,7 +27,21 @@ function proxyViaLocalServer(url, method, headers, body, isMedia = false) {
         if (event.data.success) {
           // 构造可多次读取的 Response 对象
           const responseData = event.data.data;
-          const blob = new Blob([responseData.body]);
+          let blob;
+
+          if (responseData.isBase64) {
+            // Base64 解码为二进制数据
+            const binaryString = atob(responseData.body);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            blob = new Blob([bytes]);
+          } else {
+            // 文本数据直接创建 Blob
+            blob = new Blob([responseData.body]);
+          }
+
           const responseHeaders = new Headers(responseData.headers);
 
           // 创建类 Response 对象，支持多次读取 body

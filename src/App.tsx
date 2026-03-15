@@ -136,11 +136,34 @@ function App() {
             body: proxyBody,
           });
 
+          // 检测是否为二进制响应（图片、音频、视频）
+          const contentType = proxyResponse.headers.get("content-type") || "";
+          const isBinary = contentType.startsWith("image/") ||
+                           contentType.startsWith("audio/") ||
+                           contentType.startsWith("video/") ||
+                           contentType === "application/octet-stream";
+
+          let responseBody: string;
+          if (isBinary) {
+            // 二进制数据转为 base64
+            const arrayBuffer = await proxyResponse.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            let binary = "";
+            for (let i = 0; i < bytes.byteLength; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            responseBody = btoa(binary);
+          } else {
+            // 文本数据直接使用
+            responseBody = await proxyResponse.text();
+          }
+
           const responseData = {
             status: proxyResponse.status,
             statusText: proxyResponse.statusText,
             headers: Object.fromEntries(proxyResponse.headers.entries()),
-            body: await proxyResponse.text(),
+            body: responseBody,
+            isBase64: isBinary,
           };
 
           event.source?.postMessage(
