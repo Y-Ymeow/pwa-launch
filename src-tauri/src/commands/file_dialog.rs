@@ -65,13 +65,22 @@ pub async fn open_file_dialog(
     let paths: Vec<String> = if multiple.unwrap_or(false) {
         match dialog.blocking_pick_files() {
             Some(file_paths) => {
-                log::info!("Selected files: {:?}", file_paths);
+                log::info!("Selected {} files", file_paths.len());
                 file_paths
                     .into_iter()
                     .filter_map(|fp| {
-                        let path_str = fp.into_path().ok()?.to_string_lossy().to_string();
-                        log::info!("  - {}", path_str);
-                        Some(path_str)
+                        // 尝试获取路径
+                        match fp.into_path() {
+                            Ok(path) => {
+                                let path_str = path.to_string_lossy().to_string();
+                                log::info!("  - Path: {}", path_str);
+                                Some(path_str)
+                            }
+                            Err(e) => {
+                                log::error!("Failed to convert FilePath to PathBuf: {:?}", e);
+                                None
+                            }
+                        }
                     })
                     .collect()
             }
@@ -83,16 +92,16 @@ pub async fn open_file_dialog(
     } else {
         match dialog.blocking_pick_file() {
             Some(file_path) => {
-                let path_str = file_path
-                    .into_path()
-                    .ok()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                log::info!("Selected file: {}", path_str);
-                if path_str.is_empty() {
-                    vec![]
-                } else {
-                    vec![path_str]
+                match file_path.into_path() {
+                    Ok(path) => {
+                        let path_str = path.to_string_lossy().to_string();
+                        log::info!("Selected file: {}", path_str);
+                        vec![path_str]
+                    }
+                    Err(e) => {
+                        log::error!("Failed to convert FilePath to PathBuf: {:?}", e);
+                        vec![]
+                    }
                 }
             }
             None => {
@@ -109,21 +118,6 @@ pub async fn open_file_dialog(
 #[tauri::command]
 pub async fn read_file_content(path: String) -> Result<CommandResponse<serde_json::Value>, String> {
     use std::fs;
-
-    // 处理 static://localhost/ 前缀（如果前端传了 URL 而不是路径）
-    let path = if path.starts_with("static://localhost/") {
-        let encoded = &path["static://localhost/".len()..];
-        urlencoding::decode(encoded)
-            .unwrap_or_else(|_| encoded.into())
-            .to_string()
-    } else if path.starts_with("http://static.localhost/") {
-        let encoded = &path["http://static.localhost/".len()..];
-        urlencoding::decode(encoded)
-            .unwrap_or_else(|_| encoded.into())
-            .to_string()
-    } else {
-        path
-    };
 
     let path_buf = PathBuf::from(&path);
 
@@ -177,16 +171,13 @@ pub async fn read_file_content(path: String) -> Result<CommandResponse<serde_jso
 
 #[tauri::command]
 pub async fn resolve_local_file_url(path: String) -> Result<CommandResponse<String>, String> {
-    use crate::local_server::get_local_server_port;
-
     log::info!("resolve_local_file_url: {}", path);
 
     // 返回本地 HTTP 服务器 URL
-    // 使用 /local/file/<encoded_path> 格式
+    let port = crate::local_server::get_local_server_port();
     let encoded_path = urlencoding::encode(&path);
-    let port = get_local_server_port();
     let url = format!("http://localhost:{}/local/file/{}", port, encoded_path);
-
+    
     log::info!("Local file URL: {}", url);
     Ok(CommandResponse::success(url))
 }
