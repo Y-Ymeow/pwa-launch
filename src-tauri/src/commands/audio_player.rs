@@ -67,10 +67,12 @@ pub async fn audio_play<R: Runtime>(app: AppHandle<R>, url: String) -> Result<St
     {
         // Linux: 使用 MPV
         init_mpv()?;
-        
+
         let mpv = MPV_INSTANCE.lock().unwrap();
         if let Some(ref mpv) = *mpv {
-            let _ = mpv.command("stop", &[]);
+            // 设置 pause=no 确保播放（处理歌曲自然结束后的状态）
+            let _ = mpv.set_property("pause", false);
+            // 直接 loadfile replace，不先 stop
             mpv.command("loadfile", &[&file_path, "replace"])
                 .map_err(|e| format!("Failed to load file: {:?}", e))?;
         }
