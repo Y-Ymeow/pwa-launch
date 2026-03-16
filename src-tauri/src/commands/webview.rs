@@ -314,11 +314,36 @@ pub const INJECT_BROWSER_UI: &str = r#"
                 }
                 .panel-clear-btn:hover { background: rgba(239,68,68,0.3) !important; }
                 .hidden { display: none !important; }
+                /* 工具栏隐藏/显示 */
+                .browser-bar.hidden { display: none !important; }
+                .browser-bar.hidden ~ .panel-overlay,
+                .browser-bar.hidden ~ .browser-panel { display: none !important; }
+                /* 工具栏位置切换 */
+                .browser-bar.position-bottom {
+                    position: fixed !important; bottom: 0 !important; top: auto !important;
+                    border-top: 1px solid rgba(255,255,255,0.1) !important;
+                    border-bottom: none !important;
+                }
+                /* 浮动切换按钮 */
+                .browser-float-btn {
+                    position: fixed !important; right: 10px !important;
+                    width: 36px !important; height: 36px !important;
+                    background: rgba(102,126,234,0.8) !important; border: none !important;
+                    border-radius: 50% !important; color: white !important;
+                    font-size: 16px !important; cursor: pointer !important;
+                    z-index: 2147483647 !important; display: none !important;
+                    align-items: center !important; justify-content: center !important;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
+                    pointer-events: auto !important;
+                }
+                .browser-float-btn.show { display: flex !important; }
+                .browser-float-btn:hover { background: rgba(102,126,234,1) !important; }
                 @media (max-width: 768px) {
                     .browser-bar-row.secondary { max-height: 80px !important; overflow-y: auto !important; }
                 }
             </style>
-            <div class="browser-bar">
+            <button class="browser-float-btn" id="__browser_float_toggle__" title="显示/隐藏工具栏">⋮</button>
+            <div class="browser-bar" id="__browser_bar__">
                 <div class="browser-bar-row primary" id="__browser_row_primary__">
                     <button class="browser-btn nav-btn" id="__browser_back__" title="后退">←</button>
                     <button class="browser-btn nav-btn" id="__browser_forward__" title="前进">→</button>
@@ -330,6 +355,8 @@ pub const INJECT_BROWSER_UI: &str = r#"
                     <button class="browser-btn go-btn" id="__browser_go__">GO</button>
                     <button class="browser-btn cancel-btn hidden" id="__browser_cancel__">取消</button>
                     <button class="browser-btn function-btn" id="__browser_functions__" title="更多">⋮</button>
+                    <button class="browser-btn nav-btn" id="__browser_position__" title="切换位置">⇅</button>
+                    <button class="browser-btn nav-btn" id="__browser_toggle__" title="隐藏">✕</button>
                 </div>
                 <div class="browser-bar-row secondary hidden" id="__browser_row_secondary__">
                     <button class="browser-btn function-item" id="__browser_bookmark_add__">⭐ 收藏</button>
@@ -370,6 +397,10 @@ pub const INJECT_BROWSER_UI: &str = r#"
             goBtn: shadow.getElementById('__browser_go__'),
             cancelBtn: shadow.getElementById('__browser_cancel__'),
             functionsBtn: shadow.getElementById('__browser_functions__'),
+            positionBtn: shadow.getElementById('__browser_position__'),
+            toggleBtn: shadow.getElementById('__browser_toggle__'),
+            bar: shadow.getElementById('__browser_bar__'),
+            floatBtn: document.getElementById('__browser_float_toggle__'),
             primaryRow: shadow.getElementById('__browser_row_primary__'),
             secondaryRow: shadow.getElementById('__browser_row_secondary__'),
             suggestions: shadow.getElementById('__browser_suggestions__'),
@@ -391,6 +422,47 @@ pub const INJECT_BROWSER_UI: &str = r#"
         let isInputMode = false;
         let showSecondary = false;
         let activePanel = null;
+        let isBarVisible = localStorage.getItem('__browser_bar_visible__') !== 'false';
+        let barPosition = localStorage.getItem('__browser_bar_position__') || 'top';
+        
+        // 应用工具栏位置和显示状态
+        function applyBarState() {
+            if (isBarVisible) {
+                els.bar.classList.remove('hidden');
+                els.floatBtn.classList.remove('show');
+                document.documentElement.style.paddingTop = barPosition === 'top' ? '${isMobile() ? '48px' : '52px'}' : '0';
+                document.documentElement.style.paddingBottom = barPosition === 'bottom' ? '${isMobile() ? '48px' : '52px'}' : '0';
+                
+                if (barPosition === 'bottom') {
+                    els.bar.classList.add('position-bottom');
+                    els.floatBtn.style.top = '10px';
+                    els.floatBtn.style.bottom = 'auto';
+                } else {
+                    els.bar.classList.remove('position-bottom');
+                    els.floatBtn.style.top = 'auto';
+                    els.floatBtn.style.bottom = '10px';
+                }
+            } else {
+                els.bar.classList.add('hidden');
+                els.floatBtn.classList.add('show');
+                document.documentElement.style.paddingTop = '0';
+                document.documentElement.style.paddingBottom = '0';
+            }
+        }
+        
+        // 切换工具栏显示/隐藏
+        function toggleBar() {
+            isBarVisible = !isBarVisible;
+            localStorage.setItem('__browser_bar_visible__', isBarVisible);
+            applyBarState();
+        }
+        
+        // 切换工具栏位置
+        function togglePosition() {
+            barPosition = barPosition === 'top' ? 'bottom' : 'top';
+            localStorage.setItem('__browser_bar_position__', barPosition);
+            applyBarState();
+        }
         
         // 更新 UI 状态
         function updateUI() {
@@ -401,6 +473,8 @@ pub const INJECT_BROWSER_UI: &str = r#"
                 els.forwardBtn.classList.add('hidden');
                 els.homeBtn.classList.add('hidden');
                 els.functionsBtn.classList.add('hidden');
+                els.positionBtn.classList.add('hidden');
+                els.toggleBtn.classList.add('hidden');
                 els.cancelBtn.classList.remove('hidden');
                 els.secondaryRow.classList.add('hidden');
                 showSecondary = false;
@@ -410,6 +484,8 @@ pub const INJECT_BROWSER_UI: &str = r#"
                 els.forwardBtn.classList.remove('hidden');
                 els.homeBtn.classList.remove('hidden');
                 els.functionsBtn.classList.remove('hidden');
+                els.positionBtn.classList.remove('hidden');
+                els.toggleBtn.classList.remove('hidden');
                 els.cancelBtn.classList.add('hidden');
                 els.secondaryRow.classList.toggle('hidden', !showSecondary);
                 els.functionsBtn.classList.toggle('active', showSecondary);
@@ -565,6 +641,22 @@ pub const INJECT_BROWSER_UI: &str = r#"
             updateUI();
         });
         
+        // 工具栏位置切换按钮
+        els.positionBtn.addEventListener('click', () => {
+            togglePosition();
+            showMessage(barPosition === 'top' ? '工具栏已置顶' : '工具栏已置底');
+        });
+        
+        // 工具栏隐藏按钮
+        els.toggleBtn.addEventListener('click', () => {
+            toggleBar();
+        });
+        
+        // 浮动按钮（显示工具栏）
+        els.floatBtn.addEventListener('click', () => {
+            toggleBar();
+        });
+        
         els.addressInput.addEventListener('focus', () => {
             isInputMode = true;
             updateUI();
@@ -647,6 +739,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
         }, 500);
         
         // 初始更新
+        applyBarState();
         updateUI();
         await addToHistory(location.href, document.title);
         

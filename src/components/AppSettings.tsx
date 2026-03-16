@@ -37,6 +37,8 @@ export function AppSettings({ show, onClose, showMessage }: AppSettingsProps) {
   
   // User-Agent 设置
   const [userAgent, setUserAgent] = useState(DEFAULT_USER_AGENT);
+  // 屏幕常亮设置
+  const [keepScreenOn, setKeepScreenOn] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -47,9 +49,13 @@ export function AppSettings({ show, onClose, showMessage }: AppSettingsProps) {
 
   const loadSettings = async () => {
     try {
-      const result = await invoke<{ success: boolean; data: string | null }>("get_app_config", { key: "user_agent" });
-      if (result.success && result.data) {
-        setUserAgent(result.data);
+      const uaResult = await invoke<{ success: boolean; data: string | null }>("get_app_config", { key: "user_agent" });
+      if (uaResult.success && uaResult.data) {
+        setUserAgent(uaResult.data);
+      }
+      const screenResult = await invoke<{ success: boolean; data: boolean | null }>("get_app_config", { key: "keep_screen_on" });
+      if (screenResult.success && screenResult.data !== null) {
+        setKeepScreenOn(screenResult.data);
       }
     } catch (error) {
       console.error("Failed to load settings:", error);
@@ -60,6 +66,9 @@ export function AppSettings({ show, onClose, showMessage }: AppSettingsProps) {
     setLoading(true);
     try {
       await invoke("set_app_config", { key: "user_agent", value: userAgent });
+      await invoke("set_app_config", { key: "keep_screen_on", value: keepScreenOn });
+      // 调用原生命令设置屏幕常亮
+      await invoke("set_keep_screen_on", { enabled: keepScreenOn });
       showMessage("success", "设置已保存");
       onClose();
     } catch (error) {
@@ -236,6 +245,58 @@ export function AppSettings({ show, onClose, showMessage }: AppSettingsProps) {
                 <p style={{ margin: 0, fontSize: "12px", color: "rgba(255,255,255,0.6)", lineHeight: 1.5 }}>
                   💡 User-Agent 会用于所有代理请求。某些网站会根据 User-Agent 返回不同的内容或进行限制。
                 </p>
+              </div>
+
+              <div style={{ marginTop: "24px", paddingTop: "24px", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+                <h4 style={{ color: "white", margin: "0 0 16px 0", fontSize: "16px" }}>
+                  📱 屏幕常亮
+                </h4>
+                
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "16px",
+                    background: "rgba(255,255,255,0.05)",
+                    borderRadius: "8px",
+                  }}
+                >
+                  <div>
+                    <div style={{ color: "white", fontSize: "14px", marginBottom: "4px" }}>
+                      保持屏幕常亮
+                    </div>
+                    <div style={{ color: "rgba(255,255,255,0.6)", fontSize: "12px" }}>
+                      开启后屏幕将不会自动熄灭（适用于阅读、观看视频等场景）
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setKeepScreenOn(!keepScreenOn)}
+                    style={{
+                      width: "48px",
+                      height: "26px",
+                      borderRadius: "13px",
+                      border: "none",
+                      background: keepScreenOn ? "#38ef7d" : "rgba(255,255,255,0.2)",
+                      cursor: "pointer",
+                      position: "relative",
+                      transition: "background 0.3s",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "22px",
+                        height: "22px",
+                        borderRadius: "50%",
+                        background: "white",
+                        position: "absolute",
+                        top: "2px",
+                        left: keepScreenOn ? "24px" : "2px",
+                        transition: "left 0.3s",
+                      }}
+                    />
+                  </button>
+                </div>
               </div>
             </div>
           )}

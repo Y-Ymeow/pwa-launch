@@ -141,6 +141,19 @@ function App() {
   useEffect(() => {
     loadApps();
 
+    // 加载屏幕常亮设置
+    const loadKeepScreenOn = async () => {
+      try {
+        const result = await invoke<{ success: boolean; data: boolean | null }>("get_app_config", { key: "keep_screen_on" });
+        if (result.success && result.data) {
+          await invoke("set_keep_screen_on", { enabled: true });
+        }
+      } catch (e) {
+        console.error("Failed to load keep screen on setting:", e);
+      }
+    };
+    loadKeepScreenOn();
+
     // 监听 iframe 消息
     const handleMessage = async (event: MessageEvent) => {
       if (event.data?.type === "ADAPT_READY") {
