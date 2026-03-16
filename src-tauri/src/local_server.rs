@@ -220,12 +220,10 @@ async fn handle_proxy_request(
     log::info!("[LocalServer] Received {} request: target={}, method={:?}", 
         if is_media { "media" } else { "proxy" }, req.target, req.method);
 
-    // 创建 client：禁用自动 gzip 解压，手动处理压缩
-    // 这样可以正确控制 content-length 和响应体
+    // 创建 client：禁用自动 gzip/deflate 解压（手动处理），但启用 brotli 自动解压
     let client = reqwest::Client::builder()
         .no_gzip()
         .no_deflate()
-        .no_brotli()
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
@@ -503,11 +501,10 @@ async fn handle_static_file(path: &str) -> Result<impl Reply, Infallible> {
     
     log::info!("[LocalServer] Static file proxy: {}", url);
     
-    // 代理图片请求，禁用自动 gzip 解压
+    // 代理图片请求，禁用自动 gzip/deflate 解压（手动处理），但启用 brotli
     let client = reqwest::Client::builder()
         .no_gzip()
         .no_deflate()
-        .no_brotli()
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
