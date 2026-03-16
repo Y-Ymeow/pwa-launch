@@ -6,34 +6,69 @@ pub mod android {
     use jni::JNIEnv;
     use jni::JavaVM;
     use tauri::Runtime;
+    use std::sync::OnceLock;
+    
+    static JVM: OnceLock<JavaVM> = OnceLock::new();
+    
+    /// 初始化 JVM（在主线程调用一次）
+    pub fn init_jvm() {
+        unsafe {
+            let ctx = ndk_context::android_context();
+            let vm_ptr = ctx.vm();
+            if !vm_ptr.is_null() {
+                let vm = JavaVM::from_raw(vm_ptr as *mut _).ok();
+                if let Some(vm) = vm {
+                    let _ = JVM.set(vm);
+                }
+            }
+        }
+    }
     
     fn with_env<F, R>(f: F) -> Option<R>
     where
         F: FnOnce(&mut JNIEnv) -> R,
     {
+        if let Some(vm) = JVM.get() {
+            if let Ok(mut env) = vm.attach_current_thread() {
+                return Some(f(&mut env));
+            }
+        }
+        
+        // Fallback: 尝试从 ndk_context 获取
         unsafe {
             let ctx = ndk_context::android_context();
             let vm_ptr = ctx.vm();
-            if vm_ptr.is_null() {
-                return None;
+            if !vm_ptr.is_null() {
+                if let Ok(vm) = JavaVM::from_raw(vm_ptr as *mut _) {
+                    if let Ok(mut env) = vm.attach_current_thread() {
+                        return Some(f(&mut env));
+                    }
+                }
             }
-            let vm = &*(vm_ptr as *const JavaVM);
-            let mut env = vm.attach_current_thread().ok()?;
-            Some(f(&mut env))
         }
+        
+        log::error!("[AndroidAudio] Failed to get JNI environment");
+        None
     }
 
     /// 播放音频
     pub fn play<R: Runtime>(_app: &tauri::AppHandle<R>, url: &str) -> String {
+        log::info!("[AndroidAudio] play: {}", url);
         with_env(|env| {
             let cls = match env.find_class("com/pwa/container/AudioPlayerBridge") {
                 Ok(cls) => cls,
-                Err(_) => return "Error: Cannot find AudioPlayerBridge class".to_string(),
+                Err(e) => {
+                    log::error!("[AndroidAudio] Cannot find AudioPlayerBridge: {:?}", e);
+                    return "Error: Cannot find AudioPlayerBridge class".to_string();
+                }
             };
             
             let url_jstring = match env.new_string(url) {
                 Ok(s) => s,
-                Err(_) => return "Error: Cannot create Java string".to_string(),
+                Err(e) => {
+                    log::error!("[AndroidAudio] Cannot create Java string: {:?}", e);
+                    return "Error: Cannot create Java string".to_string();
+                }
             };
             
             let result = env.call_static_method(
@@ -49,9 +84,15 @@ pub mod android {
                     let s: String = env.get_string(&jstr).unwrap().into();
                     s
                 }
-                Err(e) => format!("JNI Error: {:?}", e),
+                Err(e) => {
+                    log::error!("[AndroidAudio] JNI call failed: {:?}", e);
+                    format!("JNI Error: {:?}", e)
+                }
             }
-        }).unwrap_or("Error: JNI failed".to_string())
+        }).unwrap_or_else(|| {
+            log::error!("[AndroidAudio] JNI environment not available");
+            "Error: JNI environment not available".to_string()
+        })
     }
 
     /// 暂停

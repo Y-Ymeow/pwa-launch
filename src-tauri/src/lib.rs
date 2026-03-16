@@ -26,6 +26,8 @@ pub fn run() {
         android_logger::init_once(
             android_logger::Config::default().with_max_level(log::LevelFilter::Debug),
         );
+        // 初始化 Android JVM 用于 JNI 调用
+        commands::android_audio::android::init_jvm();
     }
 
     let mut builder = tauri::Builder::default().plugin(tauri_plugin_fs::init());
