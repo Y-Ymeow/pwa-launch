@@ -396,7 +396,15 @@ pub const INJECT_BROWSER_UI: &str = r#"
         floatBtn.addEventListener('mouseout', () => {
             floatBtn.style.background = 'rgba(102,126,234,0.8)';
         });
-        document.body.appendChild(floatBtn);
+        // 确保 body 存在再添加按钮
+        if (document.body) {
+            document.body.appendChild(floatBtn);
+        } else {
+            // 如果 body 还不存在，等待 DOMContentLoaded
+            document.addEventListener('DOMContentLoaded', () => {
+                document.body.appendChild(floatBtn);
+            });
+        }
         
         // 获取元素引用
         const els = {
