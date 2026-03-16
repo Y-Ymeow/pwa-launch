@@ -274,7 +274,21 @@ async fn handle_proxy_request(
     }
 
     // 添加 body
-    if let Some(body) = req.body {
+    if let Some(mut body) = req.body {
+        // 检查 Content-Type，如果是 form-urlencoded 且 body 被 JSON 编码（带引号），解码它
+        let content_type = req.headers.as_ref()
+            .and_then(|h| h.get("content-type").or_else(|| h.get("Content-Type")))
+            .map(|s| s.to_lowercase());
+        
+        if content_type.as_ref().map_or(false, |ct| ct.contains("application/x-www-form-urlencoded")) {
+            // 去掉可能的 JSON 字符串引号
+            if body.starts_with('"') && body.ends_with('"') && body.len() >= 2 {
+                body = body[1..body.len()-1].to_string();
+                // 反转义
+                body = body.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", "\t").replace("\\\"", "\"");
+                log::info!("[LocalServer] Decoded form-urlencoded body: {}", body);
+            }
+        }
         request_builder = request_builder.body(body);
     }
 
