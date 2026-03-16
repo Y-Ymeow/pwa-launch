@@ -474,9 +474,16 @@ async fn handle_static_file(path: &str, original_headers: warp::http::HeaderMap)
         }
     }
     
-    // 解析 URL 获取域名
+    // 解析 URL 获取域名（用于日志）
     let parsed_url = url::Url::parse(&url).ok();
-    let domain_opt = parsed_url.as_ref().and_then(|u| u.host_str());
+    let target_domain = parsed_url.as_ref().and_then(|u| u.host_str());
+    
+    // 从 referer 获取来源域名（用于 cookies）
+    let referer_domain = original_headers
+        .get("referer")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|referer| url::Url::parse(referer).ok())
+        .and_then(|url| url.host_str().map(|s| s.to_string()));
     
     // 从数据库覆盖 User-Agent 并添加 Cookies
     if let Some(db_mutex) = crate::DB_CONN.get() {
@@ -488,8 +495,10 @@ async fn handle_static_file(path: &str, original_headers: warp::http::HeaderMap)
                 }
             }
             
-            // 添加 Cookies
-            if let Some(domain) = domain_opt {
+            // 添加 Cookies - 使用 referer 的域名（来源页面）而不是目标 URL 域名
+            // 这样可以正确处理 CDN 图片、子域名资源等情况
+            let cookie_domain = referer_domain.as_deref().or(target_domain);
+            if let Some(domain) = cookie_domain {
                 let mut all_cookies = Vec::new();
                 
                 if let Ok(cookies) = crate::db::get_cookies_for_domain(&conn, "browser", domain) {
@@ -506,7 +515,11 @@ async fn handle_static_file(path: &str, original_headers: warp::http::HeaderMap)
                 
                 if !all_cookies.is_empty() {
                     let cookie_str = all_cookies.join("; ");
-                    log::info!("[LocalServer] Adding cookies for {}: {}", domain, cookie_str);
+                    log::info!("[LocalServer] Target: {}, Referer: {}, Cookies from: {} - {}", 
+                        target_domain.unwrap_or("?"),
+                        referer_domain.as_deref().unwrap_or("?"),
+                        domain, 
+                        cookie_str);
                     headers.insert(reqwest::header::COOKIE, cookie_str.parse().unwrap());
                 }
             }

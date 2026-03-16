@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-get-keep-screen-on"
+description = "Allow get_keep_screen_on command"
+commands.allow = ["get_keep_screen_on"]

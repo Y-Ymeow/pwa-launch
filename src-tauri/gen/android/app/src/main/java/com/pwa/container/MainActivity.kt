@@ -258,4 +258,24 @@ class MainActivity : TauriActivity() {
         webView.webChromeClient = FullscreenChromeClient(this, this)
         android.util.Log.d("MainActivity", "FullscreenChromeClient 设置成功")
     }
+
+    /**
+     * 设置屏幕常亮
+     */
+    fun setKeepScreenOn() {
+        runOnUiThread {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            Log.d("MainActivity", "Keep screen ON")
+        }
+    }
+
+    /**
+     * 清除屏幕常亮
+     */
+    fun clearKeepScreenOn() {
+        runOnUiThread {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            Log.d("MainActivity", "Keep screen OFF")
+        }
+    }
 }

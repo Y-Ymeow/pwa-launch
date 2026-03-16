@@ -34,6 +34,8 @@
     "allow-clear-cookies",
     "allow-get-cookie-domains",
     "allow-get-all-cookies",
+    "allow-set-keep-screen-on",
+    "allow-get-keep-screen-on",
     "allow-set-proxy",
     "allow-get-proxy",
     "allow-disable-proxy",

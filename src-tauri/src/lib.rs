@@ -328,6 +328,8 @@ pub fn run() {
             commands::kv_get,
             commands::kv_get_all,
             commands::kv_remove,
+            commands::set_keep_screen_on,
+            commands::get_keep_screen_on,
             commands::kv_clear,
             commands::navigate_to_url,
             commands::navigate_back,

@@ -19,7 +19,7 @@ export async function playAudio(url) {
   if (window.__TAURI__) {
     try {
       await window.__TAURI__.invoke("plugin:audioplayer|play", {
-        payload: { url: finalUrl }
+        payload: { url: finalUrl },
       });
       currentAudioUrl = finalUrl;
       isPlaying = true;
@@ -105,7 +105,9 @@ export function setAudioVolume(volume) {
  */
 export function setAudioLoop(loop) {
   if (window.__TAURI__) {
-    window.__TAURI__.invoke("plugin:audioplayer|set_loop", { loop_enabled: loop });
+    window.__TAURI__.invoke("plugin:audioplayer|set_loop", {
+      loop_enabled: loop,
+    });
   }
 
   if (nativeAudioElement) {
@@ -155,7 +157,9 @@ export async function getAudioPosition() {
 export async function getAudioCurrentUrl() {
   if (window.__TAURI__) {
     try {
-      return await window.__TAURI__.invoke("plugin:audioplayer|get_current_url");
+      return await window.__TAURI__.invoke(
+        "plugin:audioplayer|get_current_url",
+      );
     } catch (e) {
       console.error("[PWA Adapt Audio] Failed to get current URL:", e);
     }
@@ -186,7 +190,9 @@ export function seekAudio(positionMs) {
   console.log("[PWA Adapt Audio] Seek to:", positionMs);
 
   if (window.__TAURI__) {
-    window.__TAURI__.invoke("plugin:audioplayer|seek", { position_ms: positionMs });
+    window.__TAURI__.invoke("plugin:audioplayer|seek", {
+      positionMs: positionMs,
+    });
   }
 
   if (nativeAudioElement) {

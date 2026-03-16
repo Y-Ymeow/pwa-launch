@@ -59,6 +59,7 @@ pub mod file_dialog;
 pub mod fs;
 pub mod opfs;
 pub mod proxy;
+pub mod screen;
 
 pub mod pwa;
 
@@ -71,6 +72,7 @@ pub use file_dialog::*;
 pub use fs::*;
 pub use opfs::*;
 pub use proxy::*;
+pub use screen::*;
 
 pub use pwa::*;
 pub use webview::*;
