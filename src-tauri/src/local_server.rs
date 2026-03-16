@@ -407,6 +407,8 @@ async fn handle_proxy_request(
                     .get("content-encoding")
                     .map(|v| v.to_str().unwrap_or("").to_lowercase())
                     .unwrap_or_default();
+                
+                log::info!("[LocalServer] Response encoding: '{}'", encoding);
 
                 let body_bytes = match response.bytes().await {
                     Ok(bytes) => bytes,
@@ -418,31 +420,44 @@ async fn handle_proxy_request(
                             .unwrap());
                     }
                 };
+                
+                // 打印前几个字节用于调试
+                let preview: Vec<u8> = body_bytes.iter().take(20).copied().collect();
+                log::info!("[LocalServer] Response body first 20 bytes: {:?}", preview);
 
                 // 解压 gzip 或 deflate
-                let body = if encoding.contains("gzip") {
+                let body = if encoding.contains("gzip") || body_bytes.starts_with(&[0x1f, 0x8b]) {
+                    log::info!("[LocalServer] Decompressing gzip...");
                     use std::io::Read;
                     let mut decoder = flate2::read::GzDecoder::new(&body_bytes[..]);
                     let mut decompressed = Vec::new();
                     match decoder.read_to_end(&mut decompressed) {
-                        Ok(_) => decompressed,
+                        Ok(len) => {
+                            log::info!("[LocalServer] Gzip decompressed: {} -> {} bytes", body_bytes.len(), len);
+                            decompressed
+                        }
                         Err(e) => {
                             log::error!("[LocalServer] Failed to decompress gzip: {}", e);
                             body_bytes.to_vec()
                         }
                     }
                 } else if encoding.contains("deflate") {
+                    log::info!("[LocalServer] Decompressing deflate...");
                     use std::io::Read;
                     let mut decoder = flate2::read::ZlibDecoder::new(&body_bytes[..]);
                     let mut decompressed = Vec::new();
                     match decoder.read_to_end(&mut decompressed) {
-                        Ok(_) => decompressed,
+                        Ok(len) => {
+                            log::info!("[LocalServer] Deflate decompressed: {} -> {} bytes", body_bytes.len(), len);
+                            decompressed
+                        }
                         Err(e) => {
                             log::error!("[LocalServer] Failed to decompress deflate: {}", e);
                             body_bytes.to_vec()
                         }
                     }
                 } else {
+                    log::info!("[LocalServer] No compression, returning as-is");
                     body_bytes.to_vec()
                 };
 
