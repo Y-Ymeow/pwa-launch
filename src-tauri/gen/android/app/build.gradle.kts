@@ -57,19 +57,13 @@ android {
         getByName("release") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             manifestPlaceholders["appName"] = "PWA Container"
-            isMinifyEnabled = true
+            isMinifyEnabled = false  // 禁用 R8 混淆
 
             // 动态关联签名
             val keyPropertiesFile = rootProject.file("key.properties")
             if (keyPropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
-
-            proguardFiles(
-                *fileTree(".") { include("**/*.pro") }
-                    .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
-                    .toList().toTypedArray()
-            )
         }
     }
     kotlinOptions {
