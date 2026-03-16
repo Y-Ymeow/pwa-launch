@@ -41,7 +41,6 @@ pub async fn start_local_server(
         .and(warp::query::<HashMap<String, String>>())
         .and(warp::filters::header::headers_cloned())
         .and_then(|query: HashMap<String, String>, mut headers: warp::http::HeaderMap| async move {
-            log::info!("[LocalServer] =====> MATCHED: proxy_route_get /api/proxy");
             let mut target = query.get("url").cloned().unwrap_or_default();
             if target.is_empty() {
                 let response: Response<Body> = Response::builder()
@@ -175,7 +174,6 @@ pub async fn start_local_server(
         .and(warp::path::tail())
         .and_then(|tail: warp::path::Tail| async move {
             let path = tail.as_str();
-            log::info!("[LocalServer] =====> MATCHED: static_route /static/{}", path);
             handle_static_file(path).await
         });
 
@@ -259,26 +257,25 @@ async fn handle_proxy_request(
 
     // 从 body 的 headers 字段添加自定义 headers（Referer, User-Agent 等）
     // 这些由 PWA 完全控制
-    if let Some(custom_headers) = req.headers {
+    // 使用 lowercase key 去重，PWA 提供的优先级更高
+    let mut added_headers: std::collections::HashSet<String> = std::collections::HashSet::new();
+    
+    if let Some(ref custom_headers) = req.headers {
+        // 先添加 PWA 提供的 headers（优先级高）
         for (key, value) in custom_headers {
+            let key_lower = key.to_lowercase();
             // Range 头特殊处理，支持音频/视频流
-            if key.to_lowercase() == "range" {
+            if key_lower == "range" {
                 log::info!("[LocalServer] Adding Range header for streaming: {} = {}", key, value);
             }
             request_builder = request_builder.header(key, value);
+            added_headers.insert(key_lower);
         }
     }
 
     // 添加 body
     if let Some(body) = req.body {
         request_builder = request_builder.body(body);
-        // 如果有 body，检查是否需要设置 Content-Type
-        if let Some(ref headers) = req.headers {
-            if let Some(content_type) = headers.get("Content-Type").or_else(|| headers.get("content-type")) {
-                request_builder = request_builder.header("Content-Type", content_type);
-                log::info!("[LocalServer] Setting Content-Type for POST body: {}", content_type);
-            }
-        }
     }
 
     // 发送请求
@@ -430,43 +427,30 @@ async fn handle_proxy_request(
                     }
                 };
                 
-                // 打印前几个字节用于调试
-                let preview: Vec<u8> = body_bytes.iter().take(20).copied().collect();
-                log::info!("[LocalServer] Response body first 20 bytes: {:?}", preview);
-
                 // 解压 gzip 或 deflate
                 let body = if encoding.contains("gzip") || body_bytes.starts_with(&[0x1f, 0x8b]) {
-                    log::info!("[LocalServer] Decompressing gzip...");
                     use std::io::Read;
                     let mut decoder = flate2::read::GzDecoder::new(&body_bytes[..]);
                     let mut decompressed = Vec::new();
                     match decoder.read_to_end(&mut decompressed) {
-                        Ok(len) => {
-                            log::info!("[LocalServer] Gzip decompressed: {} -> {} bytes", body_bytes.len(), len);
-                            decompressed
-                        }
+                        Ok(_) => decompressed,
                         Err(e) => {
                             log::error!("[LocalServer] Failed to decompress gzip: {}", e);
                             body_bytes.to_vec()
                         }
                     }
                 } else if encoding.contains("deflate") {
-                    log::info!("[LocalServer] Decompressing deflate...");
                     use std::io::Read;
                     let mut decoder = flate2::read::ZlibDecoder::new(&body_bytes[..]);
                     let mut decompressed = Vec::new();
                     match decoder.read_to_end(&mut decompressed) {
-                        Ok(len) => {
-                            log::info!("[LocalServer] Deflate decompressed: {} -> {} bytes", body_bytes.len(), len);
-                            decompressed
-                        }
+                        Ok(_) => decompressed,
                         Err(e) => {
                             log::error!("[LocalServer] Failed to decompress deflate: {}", e);
                             body_bytes.to_vec()
                         }
                     }
                 } else {
-                    log::info!("[LocalServer] No compression, returning as-is");
                     body_bytes.to_vec()
                 };
 
