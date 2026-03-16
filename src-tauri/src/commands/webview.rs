@@ -324,25 +324,10 @@ pub const INJECT_BROWSER_UI: &str = r#"
                     border-top: 1px solid rgba(255,255,255,0.1) !important;
                     border-bottom: none !important;
                 }
-                /* 浮动切换按钮 */
-                .browser-float-btn {
-                    position: fixed !important; right: 10px !important;
-                    width: 36px !important; height: 36px !important;
-                    background: rgba(102,126,234,0.8) !important; border: none !important;
-                    border-radius: 50% !important; color: white !important;
-                    font-size: 16px !important; cursor: pointer !important;
-                    z-index: 2147483647 !important; display: none !important;
-                    align-items: center !important; justify-content: center !important;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
-                    pointer-events: auto !important;
-                }
-                .browser-float-btn.show { display: flex !important; }
-                .browser-float-btn:hover { background: rgba(102,126,234,1) !important; }
                 @media (max-width: 768px) {
                     .browser-bar-row.secondary { max-height: 80px !important; overflow-y: auto !important; }
                 }
             </style>
-            <button class="browser-float-btn" id="__browser_float_toggle__" title="显示/隐藏工具栏">⋮</button>
             <div class="browser-bar" id="__browser_bar__">
                 <div class="browser-bar-row primary" id="__browser_row_primary__">
                     <button class="browser-btn nav-btn" id="__browser_back__" title="后退">←</button>
@@ -388,6 +373,31 @@ pub const INJECT_BROWSER_UI: &str = r#"
         
         document.documentElement.appendChild(host);
         
+        // 创建浮动按钮（在 Shadow DOM 外部）
+        const floatBtn = document.createElement('button');
+        floatBtn.id = '__browser_float_toggle__';
+        floatBtn.className = 'browser-float-btn';
+        floatBtn.title = '显示/隐藏工具栏';
+        floatBtn.textContent = '⋮';
+        floatBtn.style.cssText = `
+            position: fixed !important; right: 10px !important;
+            width: 36px !important; height: 36px !important;
+            background: rgba(102,126,234,0.8) !important; border: none !important;
+            border-radius: 50% !important; color: white !important;
+            font-size: 16px !important; cursor: pointer !important;
+            z-index: 2147483647 !important; display: none !important;
+            align-items: center !important; justify-content: center !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
+            pointer-events: auto !important;
+        `;
+        floatBtn.addEventListener('mouseover', () => {
+            floatBtn.style.background = 'rgba(102,126,234,1)';
+        });
+        floatBtn.addEventListener('mouseout', () => {
+            floatBtn.style.background = 'rgba(102,126,234,0.8)';
+        });
+        document.body.appendChild(floatBtn);
+        
         // 获取元素引用
         const els = {
             backBtn: shadow.getElementById('__browser_back__'),
@@ -400,7 +410,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
             positionBtn: shadow.getElementById('__browser_position__'),
             toggleBtn: shadow.getElementById('__browser_toggle__'),
             bar: shadow.getElementById('__browser_bar__'),
-            floatBtn: document.getElementById('__browser_float_toggle__'),
+            floatBtn: floatBtn,
             primaryRow: shadow.getElementById('__browser_row_primary__'),
             secondaryRow: shadow.getElementById('__browser_row_secondary__'),
             suggestions: shadow.getElementById('__browser_suggestions__'),
@@ -429,7 +439,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
         function applyBarState() {
             if (isBarVisible) {
                 els.bar.classList.remove('hidden');
-                els.floatBtn.classList.remove('show');
+                els.floatBtn.style.display = 'none';
                 document.documentElement.style.paddingTop = barPosition === 'top' ? '${isMobile() ? '48px' : '52px'}' : '0';
                 document.documentElement.style.paddingBottom = barPosition === 'bottom' ? '${isMobile() ? '48px' : '52px'}' : '0';
                 
@@ -444,7 +454,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
                 }
             } else {
                 els.bar.classList.add('hidden');
-                els.floatBtn.classList.add('show');
+                els.floatBtn.style.display = 'flex';
                 document.documentElement.style.paddingTop = '0';
                 document.documentElement.style.paddingBottom = '0';
             }
