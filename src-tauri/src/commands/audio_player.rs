@@ -116,6 +116,9 @@ pub async fn audio_play<R: Runtime>(app: AppHandle<R>, url: String) -> Result<St
     {
         // Android: 通过 JNI 调用 ExoPlayer
         use crate::commands::android_audio::android;
+        // content:// URI 直接使用，不需要解码
+        // ExoPlayer 能直接处理编码后的 URI
+        log::info!("[AndroidAudio] Playing URL: {}", file_path);
         android::play(&app, &file_path);
     }
     

@@ -1,6 +1,7 @@
 package com.pwa.container
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -55,15 +56,23 @@ class AudioPlayer(private val context: Context) {
         
         return try {
             player?.let {
-                val mediaItem = MediaItem.fromUri(url)
+                // 处理 content:// URI
+                val mediaItem = if (url.startsWith("content://")) {
+                    Log.d(TAG, "Creating MediaItem from content URI")
+                    MediaItem.fromUri(Uri.parse(url))
+                } else {
+                    MediaItem.fromUri(url)
+                }
+                
                 it.setMediaItem(mediaItem)
                 it.repeatMode = if (isLooping) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
                 it.prepare()
                 it.play()
+                Log.d(TAG, "Playback started successfully")
                 "Playing"
             } ?: "Error: Player not initialized"
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to play: ${e.message}")
+            Log.e(TAG, "Failed to play: ${e.message}", e)
             "Error: ${e.message}"
         }
     }
