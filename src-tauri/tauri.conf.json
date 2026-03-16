@@ -12,7 +12,16 @@
   "app": {
     "windows": [],
     "security": {
-      "csp": "default-src 'self' https: http: ipc: http://ipc.localhost http://* https://*; standard-src 'self' asset: https: http: pwa-resource: adapt: http://adapt.localhost; script-src 'self' 'unsafe-inline' 'unsafe-eval' https: http: pwa-resource: adapt: http://adapt.localhost http://* https://*; style-src 'self' 'unsafe-inline' https: http: pwa-resource: http://* https://*; img-src 'self' asset: https: http: pwa-resource: data: blob: http://* https://*; media-src 'self' asset: https: http: pwa-resource: blob: http://* https://*; connect-src 'self' asset: https: http: pwa-resource: http://ipc.localhost http://* https://*; font-src 'self' https: http: http://* https://*;",
+      "csp": {
+        "default-src": "* http://* https://*",
+        "standard-src": "*",
+        "script-src": "*",
+        "style-src": "*",
+        "img-src": "*",
+        "media-src": "*",
+        "connect-src": "*",
+        "font-src": "*"
+      },
       "dangerousDisableAssetCspModification": true,
       "assetProtocol": {
         "enable": true,

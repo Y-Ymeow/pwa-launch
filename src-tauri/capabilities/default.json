@@ -2,49 +2,23 @@
   "$schema": "https://schema.tauri.app/config/2/capabilities",
   "identifier": "main-capability",
   "description": "Default capability for the app",
-  "windows": [
-    "main"
-  ],
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "shell:default",
-    {
-      "identifier": "fs:default"
-    },
-    {
-      "identifier": "fs:allow-read-file",
-      "allow": [
-        {
-          "path": "**"
-        },
-        {
-          "path": "$AUDIO/**"
-        },
-        {
-          "path": "$VIDEO/**"
-        },
-        {
-          "path": "$PICTURE/**"
-        },
-        {
-          "path": "$DOCUMENT/**"
-        },
-        {
-          "path": "$DOWNLOAD/**"
-        },
-        {
-          "path": "$HOME/**"
-        }
-      ]
-    },
-    {
-      "identifier": "http:default",
-      "allow": [
-        {
-          "url": "fs://**"
-        }
-      ]
-    },
+    "fs:default",
+    "fs:allow-read-file",
+    "fs:allow-write-file",
+    "fs:allow-read-dir",
+    "fs:allow-create-dir",
+    "fs:allow-remove",
+    "fs:allow-exists",
+    "dialog:default",
+    "dialog:allow-open",
+    "http:default",
+    "http:allow-fetch",
+    "os:default",
+    "log:default",
     "allow-install-pwa",
     "allow-uninstall-pwa",
     "allow-list-apps",
@@ -105,10 +79,6 @@
     "allow-audio-seek",
     "allow-audio-get-current-url",
     "allow-audio-set-loop",
-    "os:default",
-    "log:default",
-    "dialog:default",
-    "shell:allow-open",
-    "fs:default"
+    "shell:allow-open"
   ]
 }
