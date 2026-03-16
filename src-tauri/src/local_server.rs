@@ -41,6 +41,7 @@ pub async fn start_local_server(
         .and(warp::query::<HashMap<String, String>>())
         .and(warp::filters::header::headers_cloned())
         .and_then(|query: HashMap<String, String>, mut headers: warp::http::HeaderMap| async move {
+            log::info!("[LocalServer] =====> MATCHED: proxy_route_get /api/proxy");
             let mut target = query.get("url").cloned().unwrap_or_default();
             if target.is_empty() {
                 let response: Response<Body> = Response::builder()
@@ -174,6 +175,7 @@ pub async fn start_local_server(
         .and(warp::path::tail())
         .and_then(|tail: warp::path::Tail| async move {
             let path = tail.as_str();
+            log::info!("[LocalServer] =====> MATCHED: static_route /static/{}", path);
             handle_static_file(path).await
         });
 
