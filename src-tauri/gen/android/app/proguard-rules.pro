@@ -26,9 +26,7 @@
     *;
 }
 
-# 防止 R8 优化掉看似未使用的类
--dontshrink
--dontoptimize
+# 注意：R8 不支持 -dontshrink/-dontoptimize，使用 -keep 替代
 
 # 保留 Kotlin 元数据
 -keepattributes *Annotation*
