@@ -272,6 +272,13 @@ async fn handle_proxy_request(
     // 添加 body
     if let Some(body) = req.body {
         request_builder = request_builder.body(body);
+        // 如果有 body，检查是否需要设置 Content-Type
+        if let Some(ref headers) = req.headers {
+            if let Some(content_type) = headers.get("Content-Type").or_else(|| headers.get("content-type")) {
+                request_builder = request_builder.header("Content-Type", content_type);
+                log::info!("[LocalServer] Setting Content-Type for POST body: {}", content_type);
+            }
+        }
     }
 
     // 发送请求

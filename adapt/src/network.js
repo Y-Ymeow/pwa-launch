@@ -190,11 +190,6 @@ export function createNetwork(bridge) {
         headers["User-Agent"] =
           "Mozilla/5.0 (Linux; Android 13; TECNO BG6 Build/TP1A.220624.014) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.7632.159 Mobile Safari/537.36";
 
-        // 添加简单的 Accept 头（与 curl 一致）
-        if (!headers["Accept"] && !headers["accept"]) {
-          headers["Accept"] = "*/*";
-        }
-
         return await proxyViaLocalServer(
           urlStr,
           options.method || "GET",
