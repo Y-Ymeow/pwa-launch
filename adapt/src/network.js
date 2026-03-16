@@ -75,6 +75,26 @@ function proxyViaLocalServer(url, method, headers, body, isMedia = false) {
       reject(new Error("Proxy request timeout"));
     }, 30000);
 
+    // 转换 body 为字符串（处理 URLSearchParams/FormData）
+    let bodyString = null;
+    if (body !== null && body !== undefined) {
+      if (typeof body === "string") {
+        bodyString = body;
+      } else if (body instanceof URLSearchParams) {
+        bodyString = body.toString();
+      } else if (body instanceof FormData) {
+        // FormData 无法直接转换为字符串，需要特殊处理
+        const entries = [];
+        for (const [key, value] of body.entries()) {
+          entries.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+        }
+        bodyString = entries.join("&");
+      } else {
+        // 其他类型转为字符串
+        bodyString = String(body);
+      }
+    }
+
     // 发送代理请求给父窗口，使用 isMedia 标记来选择路由
     window.parent.postMessage(
       {
@@ -83,7 +103,7 @@ function proxyViaLocalServer(url, method, headers, body, isMedia = false) {
         url,
         method,
         headers,
-        body,
+        body: bodyString,
         isMedia, // 标记是否为媒体请求
       },
       "*",
