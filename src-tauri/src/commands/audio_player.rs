@@ -19,7 +19,22 @@ lazy_static::lazy_static! {
 // 设置 MPV 需要的 C locale (Linux only)
 #[cfg(not(target_os = "android"))]
 fn set_mpv_locale() {
+    // 设置环境变量
     std::env::set_var("LC_NUMERIC", "C");
+    std::env::set_var("LC_ALL", "C");
+    
+    // 尝试调用 C 的 setlocale（如果可用）
+    #[cfg(target_os = "linux")]
+    unsafe {
+        extern "C" {
+            fn setlocale(category: i32, locale: *const i8) -> *mut i8;
+        }
+        const LC_NUMERIC: i32 = 1;
+        const LC_ALL: i32 = 6;
+        let c_locale = std::ffi::CString::new("C").unwrap();
+        setlocale(LC_NUMERIC, c_locale.as_ptr());
+        setlocale(LC_ALL, c_locale.as_ptr());
+    }
 }
 
 /// 初始化 MPV (Linux only)

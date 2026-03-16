@@ -130,6 +130,15 @@ export function createFS(bridge) {
         return filePath;
       }
 
+      // Android content:// URI: 读取内容并创建 blob URL
+      if (filePath.startsWith("content://")) {
+        const fileInfo = await this.readFileContent(filePath);
+        if (fileInfo && fileInfo.blob) {
+          return URL.createObjectURL(fileInfo.blob);
+        }
+        throw new Error("Failed to read content URI");
+      }
+
       const result = await bridge.invoke("resolve_local_file_url", { path: filePath });
       if (result.success && result.data) return result.data;
       throw new Error("Failed to resolve file URL");

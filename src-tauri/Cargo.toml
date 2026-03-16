@@ -1,6 +1,6 @@
 [package]
 name = "pwa_container"
-version = "0.2.1"
+version = "0.2.6"
 description = "PWA 安装容器 - 跨平台应用容器，支持 PC 和移动端"
 authors = ["you"]
 edition = "2021"

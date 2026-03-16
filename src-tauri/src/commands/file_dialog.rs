@@ -69,16 +69,25 @@ pub async fn open_file_dialog(
                 file_paths
                     .into_iter()
                     .filter_map(|fp| {
-                        // 尝试获取路径
-                        match fp.into_path() {
-                            Ok(path) => {
-                                let path_str = path.to_string_lossy().to_string();
-                                log::info!("  - Path: {}", path_str);
-                                Some(path_str)
-                            }
-                            Err(e) => {
-                                log::error!("Failed to convert FilePath to PathBuf: {:?}", e);
-                                None
+                        // Android 上使用 URL (content://)，桌面端使用路径
+                        #[cfg(target_os = "android")]
+                        {
+                            let url = fp.url().to_string();
+                            log::info!("  - URL: {}", url);
+                            Some(url)
+                        }
+                        #[cfg(not(target_os = "android"))]
+                        {
+                            match fp.into_path() {
+                                Ok(path) => {
+                                    let path_str = path.to_string_lossy().to_string();
+                                    log::info!("  - Path: {}", path_str);
+                                    Some(path_str)
+                                }
+                                Err(e) => {
+                                    log::error!("Failed to convert FilePath to PathBuf: {:?}", e);
+                                    None
+                                }
                             }
                         }
                     })
@@ -92,15 +101,24 @@ pub async fn open_file_dialog(
     } else {
         match dialog.blocking_pick_file() {
             Some(file_path) => {
-                match file_path.into_path() {
-                    Ok(path) => {
-                        let path_str = path.to_string_lossy().to_string();
-                        log::info!("Selected file: {}", path_str);
-                        vec![path_str]
-                    }
-                    Err(e) => {
-                        log::error!("Failed to convert FilePath to PathBuf: {:?}", e);
-                        vec![]
+                #[cfg(target_os = "android")]
+                {
+                    let url = file_path.url().to_string();
+                    log::info!("Selected file URL: {}", url);
+                    vec![url]
+                }
+                #[cfg(not(target_os = "android"))]
+                {
+                    match file_path.into_path() {
+                        Ok(path) => {
+                            let path_str = path.to_string_lossy().to_string();
+                            log::info!("Selected file: {}", path_str);
+                            vec![path_str]
+                        }
+                        Err(e) => {
+                            log::error!("Failed to convert FilePath to PathBuf: {:?}", e);
+                            vec![]
+                        }
                     }
                 }
             }
@@ -116,37 +134,76 @@ pub async fn open_file_dialog(
 }
 
 #[tauri::command]
-pub async fn read_file_content(path: String) -> Result<CommandResponse<serde_json::Value>, String> {
-    use std::fs;
-
-    let path_buf = PathBuf::from(&path);
-
+pub async fn read_file_content(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<CommandResponse<serde_json::Value>, String> {
     log::info!("read_file_content: {}", path);
 
-    if !path_buf.exists() {
-        return Err("文件不存在".to_string());
+    let (content, name, size, mime_type): (Vec<u8>, String, u64, String);
+
+    #[cfg(target_os = "android")]
+    {
+        // Android: 使用 tauri_plugin_fs 读取 content:// URI
+        if path.starts_with("content://") {
+            use tauri_plugin_fs::FsExt;
+            let fs_ext = app.fs();
+            content = fs_ext
+                .read(path.clone())
+                .map_err(|e| format!("读取文件失败：{}", e))?;
+            
+            // 从 URL 提取文件名
+            name = path
+                .split('/')
+                .last()
+                .unwrap_or("unknown")
+                .to_string();
+            size = content.len() as u64;
+        } else {
+            // 普通路径
+            let path_buf = PathBuf::from(&path);
+            if !path_buf.exists() {
+                return Err("文件不存在".to_string());
+            }
+            content = std::fs::read(&path_buf).map_err(|e| format!("读取文件失败：{}", e))?;
+            name = path_buf
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            size = content.len() as u64;
+        }
     }
 
-    let metadata = fs::metadata(&path_buf).map_err(|e| format!("读取文件信息失败：{}", e))?;
-
-    let name = path_buf
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
-        .to_string();
-
-    let content = fs::read(&path_buf).map_err(|e| format!("读取文件失败：{}", e))?;
+    #[cfg(not(target_os = "android"))]
+    {
+        // Linux/Desktop: 直接使用 std::fs
+        let path_buf = PathBuf::from(&path);
+        if !path_buf.exists() {
+            return Err("文件不存在".to_string());
+        }
+        let metadata = std::fs::metadata(&path_buf)
+            .map_err(|e| format!("读取文件信息失败：{}", e))?;
+        content = std::fs::read(&path_buf).map_err(|e| format!("读取文件失败：{}", e))?;
+        name = path_buf
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        size = metadata.len();
+    }
 
     use base64::Engine;
     let base64_content = base64::engine::general_purpose::STANDARD.encode(&content);
 
-    let ext = path_buf
-        .extension()
-        .and_then(|e| e.to_str())
+    // 从文件名或路径提取扩展名
+    let ext = name
+        .split('.')
+        .last()
         .unwrap_or("")
         .to_lowercase();
 
-    let mime_type = match ext.as_str() {
+    mime_type = match ext.as_str() {
         "mp3" => "audio/mpeg",
         "flac" => "audio/flac",
         "wav" => "audio/wav",
@@ -156,14 +213,15 @@ pub async fn read_file_content(path: String) -> Result<CommandResponse<serde_jso
         "wma" => "audio/x-ms-wma",
         "lrc" => "text/plain",
         _ => "application/octet-stream",
-    };
+    }
+    .to_string();
 
-    log::info!("read_file_content: {} ({} bytes)", name, metadata.len());
+    log::info!("read_file_content: {} ({} bytes)", name, size);
 
     Ok(CommandResponse::success(serde_json::json!({
         "name": name,
         "path": path,
-        "size": metadata.len(),
+        "size": size,
         "mimeType": mime_type,
         "content": base64_content,
     })))
@@ -185,40 +243,72 @@ pub async fn resolve_local_file_url(path: String) -> Result<CommandResponse<Stri
 /// 读取文件指定范围的内容（用于获取元数据）
 #[tauri::command]
 pub async fn read_file_range(
+    app: tauri::AppHandle,
     path: String,
     offset: u64,
     length: u64,
 ) -> Result<CommandResponse<serde_json::Value>, String> {
+    log::info!("read_file_range: {} offset={} length={}", path, offset, length);
+
+    #[cfg(target_os = "android")]
+    {
+        // Android: content:// URI 不支持随机访问，需要读取整个文件
+        if path.starts_with("content://") {
+            use tauri_plugin_fs::FsExt;
+            let fs_ext = app.fs();
+            let full_content = fs_ext
+                .read(path.clone())
+                .map_err(|e| format!("读取文件失败：{}", e))?;
+
+            let file_size = full_content.len() as u64;
+            let actual_offset = offset.min(file_size);
+            let max_length = file_size - actual_offset;
+            let actual_length = length.min(max_length).min(10 * 1024 * 1024) as usize;
+
+            let end = (actual_offset as usize + actual_length).min(full_content.len());
+            let buffer = full_content[actual_offset as usize..end].to_vec();
+
+            use base64::Engine;
+            let base64_content = base64::engine::general_purpose::STANDARD.encode(&buffer);
+
+            let name = path
+                .split('/')
+                .last()
+                .unwrap_or("unknown")
+                .to_string();
+
+            log::info!("read_file_range: {} read {} bytes", name, buffer.len());
+
+            return Ok(CommandResponse::success(serde_json::json!({
+                "name": name,
+                "path": path,
+                "size": file_size,
+                "offset": actual_offset,
+                "length": buffer.len(),
+                "content": base64_content,
+            })));
+        }
+    }
+
+    // Desktop: 使用标准文件操作
     use std::fs::File;
     use std::io::{Read, Seek, SeekFrom};
 
     let path_buf = PathBuf::from(&path);
-
-    log::info!(
-        "read_file_range: {} offset={} length={}",
-        path,
-        offset,
-        length
-    );
-
     if !path_buf.exists() {
         return Err("文件不存在".to_string());
     }
 
     let mut file = File::open(&path_buf).map_err(|e| format!("打开文件失败：{}", e))?;
-
-    // 获取文件大小
     let file_size = file
         .metadata()
         .map_err(|e| format!("获取文件信息失败：{}", e))?
         .len();
 
-    // 限制读取范围
     let actual_offset = offset.min(file_size);
     let max_length = file_size - actual_offset;
-    let actual_length = length.min(max_length).min(10 * 1024 * 1024); // 最大 10MB
+    let actual_length = length.min(max_length).min(10 * 1024 * 1024);
 
-    // 定位并读取
     file.seek(SeekFrom::Start(actual_offset))
         .map_err(|e| format!("定位文件失败：{}", e))?;
 
