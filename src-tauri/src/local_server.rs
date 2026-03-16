@@ -583,6 +583,11 @@ async fn handle_local_file(
 
     log::info!("[LocalServer] Serving local file: {}", decoded_path);
 
+    // 处理 Android content:// URI
+    if decoded_path.starts_with("content://") {
+        return handle_content_uri(&decoded_path, &headers).await;
+    }
+
     // 获取文件元数据
     let metadata = match std::fs::metadata(&decoded_path) {
         Ok(m) => m,
@@ -699,6 +704,63 @@ async fn handle_local_file(
                 .body(Body::from(format!("Read failed: {}", e)))
                 .unwrap())
         }
+    }
+}
+
+/// 处理 Android content:// URI
+async fn handle_content_uri(
+    content_uri: &str,
+    _headers: &warp::http::HeaderMap,
+) -> Result<Response<Body>, Infallible> {
+    log::info!("[LocalServer] Handling content URI: {}", content_uri);
+
+    // content:// URI 需要通过 Android ContentResolver 读取
+    // 本地 HTTP 服务器无法直接处理，返回错误提示
+    log::error!("[LocalServer] content:// URI requires Android native access: {}", content_uri);
+
+    Ok(Response::builder()
+        .status(500)
+        .header("Content-Type", "text/plain")
+        .header("Access-Control-Allow-Origin", "*")
+        .body(Body::from("content:// URI requires native Android access. Use native audio player instead."))
+        .unwrap())
+}
+
+/// 从 URI 猜测 MIME 类型
+fn guess_mime_type_from_uri(uri: &str) -> &'static str {
+    let uri_lower = uri.to_lowercase();
+    if uri_lower.ends_with(".mp3") {
+        "audio/mpeg"
+    } else if uri_lower.ends_with(".flac") {
+        "audio/flac"
+    } else if uri_lower.ends_with(".wav") {
+        "audio/wav"
+    } else if uri_lower.ends_with(".ogg") {
+        "audio/ogg"
+    } else if uri_lower.ends_with(".m4a") || uri_lower.ends_with(".mp4") {
+        "audio/mp4"
+    } else if uri_lower.ends_with(".aac") {
+        "audio/aac"
+    } else if uri_lower.ends_with(".wma") {
+        "audio/x-ms-wma"
+    } else if uri_lower.ends_with(".webm") {
+        "video/webm"
+    } else if uri_lower.ends_with(".mkv") {
+        "video/x-matroska"
+    } else if uri_lower.ends_with(".mov") {
+        "video/quicktime"
+    } else if uri_lower.ends_with(".avi") {
+        "video/x-msvideo"
+    } else if uri_lower.ends_with(".jpg") || uri_lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if uri_lower.ends_with(".png") {
+        "image/png"
+    } else if uri_lower.ends_with(".gif") {
+        "image/gif"
+    } else if uri_lower.ends_with(".webp") {
+        "image/webp"
+    } else {
+        "application/octet-stream"
     }
 }
 

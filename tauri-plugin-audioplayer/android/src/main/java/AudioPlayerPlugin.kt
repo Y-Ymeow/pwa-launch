@@ -11,6 +11,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.PlaybackException
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.datasource.FileDescriptorDataSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -77,7 +79,6 @@ class AudioPlayerPlugin(private val activity: Activity): Plugin(activity) {
 
         try {
             player?.let {
-                // 将本地文件路径转换为 content:// URI
                 val uri = when {
                     url.startsWith("content://") -> {
                         val contentUri = Uri.parse(url)
@@ -107,9 +108,35 @@ class AudioPlayerPlugin(private val activity: Activity): Plugin(activity) {
                 }
 
                 currentUrl = url
-                val mediaItem = MediaItem.fromUri(uri)
 
-                it.setMediaItem(mediaItem)
+                // 对于 content:// URI，使用 ContentResolver 打开文件描述符
+                val mediaItem = if (url.startsWith("content://")) {
+                    try {
+                        val resolver = activity.contentResolver
+                        val pfd = resolver.openFileDescriptor(uri, "r")
+                        if (pfd != null) {
+                            Log.d(TAG, "Opened content URI via FileDescriptor")
+                            val dataSource = androidx.media3.datasource.FileDescriptorDataSource(pfd)
+                            val factory = androidx.media3.datasource.DataSource.Factory { dataSource }
+                            val mediaSource = androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(factory)
+                                .createMediaSource(MediaItem.fromUri(uri))
+                            it.setMediaSource(mediaSource)
+                            null  // 使用 setMediaSource 后不需要再返回 mediaItem
+                        } else {
+                            Log.w(TAG, "Could not open FileDescriptor, falling back to direct URI")
+                            MediaItem.fromUri(uri)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to open FileDescriptor: ${e.message}, falling back to direct URI")
+                        MediaItem.fromUri(uri)
+                    }
+                } else {
+                    MediaItem.fromUri(uri)
+                }
+
+                if (mediaItem != null) {
+                    it.setMediaItem(mediaItem)
+                }
                 it.repeatMode = if (isLooping) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
                 it.prepare()
                 it.play()
