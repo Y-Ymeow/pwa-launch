@@ -22,6 +22,7 @@ jobs:
 
       - run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libmpv-dev mpv
       - run: bun install
+      - run: bun run build:adapt
       - run: bun run build
       
       # 只生成二进制、DEB 和 RPM
@@ -66,6 +67,7 @@ jobs:
         with:
           targets: aarch64-linux-android
       - run: bun install
+      - run: bun run build:adapt
       - run: bun run build
 
       - name: Configure Android Signing
