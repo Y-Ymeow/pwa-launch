@@ -13,23 +13,38 @@ let progressInterval = null;
  * @param {string} url - 音频 URL
  */
 export async function playAudio(url) {
+  let finalUrl = url;
+
+  // Android: 将 content:// URI 转换成本地 HTTP URL
+  if (url.startsWith("content://")) {
+    try {
+      const result = await window.__TAURI__.invoke("resolve_local_file_url", { path: url });
+      if (result && result.data) {
+        finalUrl = result.data;
+        console.log("[PWA Adapt Audio] Converted content URI to:", finalUrl);
+      }
+    } catch (e) {
+      console.error("[PWA Adapt Audio] Failed to convert content URI:", e);
+    }
+  }
+
   if (window.__TAURI__) {
     try {
       await window.__TAURI__.invoke("plugin:audioplayer|play", {
-        payload: { url }
+        payload: { url: finalUrl }
       });
-      currentAudioUrl = url;
+      currentAudioUrl = finalUrl;
       isPlaying = true;
       startProgressTracking();
       return true;
     } catch (e) {
       console.error("[PWA Adapt Audio] Failed to play:", e);
       // 回退到原生 HTML5 Audio
-      return playAudioNative(url);
+      return playAudioNative(finalUrl);
     }
   } else {
     // 非 Tauri 环境，使用原生 Audio
-    return playAudioNative(url);
+    return playAudioNative(finalUrl);
   }
 }
 

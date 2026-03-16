@@ -1,6 +1,7 @@
 package com.plugin.audioplayer
 
 import android.app.Activity
+import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import android.os.Build
@@ -78,7 +79,21 @@ class AudioPlayerPlugin(private val activity: Activity): Plugin(activity) {
             player?.let {
                 // 将本地文件路径转换为 content:// URI
                 val uri = when {
-                    url.startsWith("content://") -> Uri.parse(url)
+                    url.startsWith("content://") -> {
+                        val contentUri = Uri.parse(url)
+                        // 尝试持久化 URI 权限（针对外部存储的 content URI）
+                        try {
+                            activity.contentResolver.takePersistableUriPermission(
+                                contentUri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            )
+                            Log.d(TAG, "Persisted URI permission for: $url")
+                        } catch (e: Exception) {
+                            // 不是持久化的 URI，可能只是临时权限，继续尝试播放
+                            Log.d(TAG, "Could not persist URI permission, may be temporary: ${e.message}")
+                        }
+                        contentUri
+                    }
                     url.startsWith("/") -> {
                         // 本地文件路径，使用 FileProvider
                         val file = File(url)
