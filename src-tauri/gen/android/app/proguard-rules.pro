@@ -7,12 +7,36 @@
 
 # 保留 JNI 调用的类（Rust 通过 JNI 调用）
 -keep class com.pwa.container.AudioPlayerBridge {
-    public static *;
+    *;
 }
 
 # 保留 AudioPlayer 相关类
--keep class com.pwa.container.AudioPlayer { *; }
--keep class com.pwa.container.AudioPlayerInstance { *; }
+-keep class com.pwa.container.AudioPlayer {
+    *;
+}
+-keep class com.pwa.container.AudioPlayerInstance {
+    *;
+}
+-keep class com.pwa.container.AudioPlayer$PlaybackState {
+    *;
+}
+
+# 保留所有 com.pwa.container 包下的类（用于 JNI）
+-keep class com.pwa.container.** {
+    *;
+}
+
+# 防止 R8 优化掉看似未使用的类
+-dontshrink
+-dontoptimize
+
+# 保留 Kotlin 元数据
+-keepattributes *Annotation*
+-keepattributes Signature
+-keepattributes Exceptions
+-keepattributes InnerClasses
+-keepattributes EnclosingMethod
+-keepattributes KotlinMetadata
 
 # 保留 ExoPlayer 相关类（防止被混淆导致播放失败）
 -keep class androidx.media3.** { *; }
