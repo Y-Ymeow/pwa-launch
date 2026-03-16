@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use tauri::State;
 
-use super::{extract_domain, CommandResponse, CookieStore, ProxyConfig};
+use super::{extract_domain, CommandResponse, ProxyConfig};
 
 /// 代理 fetch 请求 - 解决 CORS 问题
 #[tauri::command]
@@ -11,7 +11,6 @@ pub async fn proxy_fetch(
     headers: HashMap<String, String>,
     body: Option<String>,
     response_type: Option<String>,
-    cookie_store: State<'_, CookieStore>,
     proxy_config: State<'_, ProxyConfig>,
 ) -> Result<CommandResponse<serde_json::Value>, String> {
     use std::time::Instant;
@@ -38,45 +37,67 @@ pub async fn proxy_fetch(
     log::info!("Headers: {:?}", headers);
 
     let domain = extract_domain(&url);
-    let cookies = cookie_store.read().await;
-
-    // 优先使用 WebView 同步的 cookies（验证助手同步的）
-    let webview_cookie_header = cookies
-        .get("webview")
-        .and_then(|app_cookies| app_cookies.get(&domain))
-        .map(|c| {
-            c.iter()
-                .map(|(k, v)| format!("{}={}", k, v))
-                .collect::<Vec<_>>()
-                .join("; ")
-        })
-        .filter(|s| !s.is_empty());
-
-    // 如果没有 WebView cookies，使用默认的
-    let cookie_header = webview_cookie_header
-        .or_else(|| {
-            cookies
-                .get("default")
-                .and_then(|app_cookies| app_cookies.get(&domain))
-                .map(|c| {
-                    c.iter()
-                        .map(|(k, v)| format!("{}={}", k, v))
-                        .collect::<Vec<_>>()
-                        .join("; ")
-                })
-        })
-        .unwrap_or_default();
-
+    
+    // 从数据库查询 cookies（使用全局 DB_CONN）
+    let cookie_header = {
+        let conn = if let Some(db_mutex) = crate::DB_CONN.get() {
+            db_mutex.lock().map_err(|e| e.to_string())?
+        } else {
+            return Err("DB not initialized".to_string());
+        };
+        
+        let mut all_cookies = Vec::new();
+        
+        // 优先使用 WebView 同步的 cookies
+        if let Ok(cookies) = crate::db::get_cookies_for_domain(&conn, "webview", &domain) {
+            for (k, v) in cookies {
+                all_cookies.push(format!("{}={}", k, v));
+            }
+        }
+        
+        // 如果没有 WebView cookies，使用 browser 的
+        if all_cookies.is_empty() {
+            if let Ok(cookies) = crate::db::get_cookies_for_domain(&conn, "browser", &domain) {
+                for (k, v) in cookies {
+                    all_cookies.push(format!("{}={}", k, v));
+                }
+            }
+        }
+        
+        // 最后尝试 default
+        if all_cookies.is_empty() {
+            if let Ok(cookies) = crate::db::get_cookies_for_domain(&conn, "default", &domain) {
+                for (k, v) in cookies {
+                    all_cookies.push(format!("{}={}", k, v));
+                }
+            }
+        }
+        
+        all_cookies.join("; ")
+    };
     if !cookie_header.is_empty() {
         log::info!("使用 Cookies: {}", cookie_header);
     }
 
-    drop(cookies);
-
+    // 从数据库读取全局 User-Agent
+    let user_agent = if let Some(db_mutex) = crate::DB_CONN.get() {
+        if let Ok(conn) = db_mutex.lock() {
+            crate::db::get_user_agent(&conn).unwrap_or_default()
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+    
     let mut client_builder = reqwest::Client::builder().default_headers({
         let mut headers = reqwest::header::HeaderMap::new();
         if !cookie_header.is_empty() {
             headers.insert(reqwest::header::COOKIE, cookie_header.parse().unwrap());
+        }
+        // 添加全局 User-Agent
+        if !user_agent.is_empty() {
+            headers.insert(reqwest::header::USER_AGENT, user_agent.parse().unwrap());
         }
         headers
     });

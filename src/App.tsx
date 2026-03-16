@@ -5,16 +5,23 @@ import {
   BrowserView,
   AppList,
   ProxySettings,
+  AppSettings,
   type AppInfo,
   type RunningPwa,
   type PwaSnapshot,
   type CommandResponse,
   type ViewMode,
   type BrowserHistoryItem,
+  type BrowserBookmarkItem,
 } from "./components";
 import Test from "./Test.js";
 
 const MAX_IFRAMES = 6;
+
+// KV 存储键
+const KV_APP_ID = "browser";
+const KV_KEY_HISTORY = "history";
+const KV_KEY_BOOKMARKS = "bookmarks";
 
 function App() {
   // 视图模式
@@ -22,9 +29,71 @@ function App() {
 
   // 浏览器状态
   const [browserUrl, setBrowserUrl] = useState("");
-  const [browserHistory, setBrowserHistory] = useState<BrowserHistoryItem[]>(
-    [],
-  );
+  const [browserHistory, setBrowserHistory] = useState<BrowserHistoryItem[]>([]);
+  const [browserBookmarks, setBrowserBookmarks] = useState<BrowserBookmarkItem[]>([]);
+  const [browserDataLoaded, setBrowserDataLoaded] = useState(false);
+
+  // 从 KV 加载浏览器数据
+  useEffect(() => {
+    const loadBrowserData = async () => {
+      try {
+        const historyRes = await invoke<CommandResponse<string | null>>("kv_get", {
+          appId: KV_APP_ID,
+          key: KV_KEY_HISTORY,
+        });
+        if (historyRes.success && historyRes.data) {
+          setBrowserHistory(JSON.parse(historyRes.data));
+        }
+
+        const bookmarksRes = await invoke<CommandResponse<string | null>>("kv_get", {
+          appId: KV_APP_ID,
+          key: KV_KEY_BOOKMARKS,
+        });
+        if (bookmarksRes.success && bookmarksRes.data) {
+          setBrowserBookmarks(JSON.parse(bookmarksRes.data));
+        }
+      } catch (e) {
+        console.error("Failed to load browser data from KV:", e);
+      } finally {
+        setBrowserDataLoaded(true);
+      }
+    };
+    loadBrowserData();
+  }, []);
+
+  // 保存历史到 KV
+  useEffect(() => {
+    if (!browserDataLoaded) return;
+    const saveHistory = async () => {
+      try {
+        await invoke("kv_set", {
+          appId: KV_APP_ID,
+          key: KV_KEY_HISTORY,
+          value: JSON.stringify(browserHistory),
+        });
+      } catch (e) {
+        console.error("Failed to save history to KV:", e);
+      }
+    };
+    saveHistory();
+  }, [browserHistory, browserDataLoaded]);
+
+  // 保存收藏到 KV
+  useEffect(() => {
+    if (!browserDataLoaded) return;
+    const saveBookmarks = async () => {
+      try {
+        await invoke("kv_set", {
+          appId: KV_APP_ID,
+          key: KV_KEY_BOOKMARKS,
+          value: JSON.stringify(browserBookmarks),
+        });
+      } catch (e) {
+        console.error("Failed to save bookmarks to KV:", e);
+      }
+    };
+    saveBookmarks();
+  }, [browserBookmarks, browserDataLoaded]);
 
   // 应用状态
   const [apps, setApps] = useState<AppInfo[]>([]);
@@ -35,6 +104,9 @@ function App() {
 
   // 代理设置
   const [showProxy, setShowProxy] = useState(false);
+
+  // 应用设置
+  const [showAppSettings, setShowAppSettings] = useState(false);
 
   // 消息提示
   const [message, setMessage] = useState<{
@@ -417,6 +489,8 @@ function App() {
             setBrowserUrl={setBrowserUrl}
             browserHistory={browserHistory}
             setBrowserHistory={setBrowserHistory}
+            browserBookmarks={browserBookmarks}
+            setBrowserBookmarks={setBrowserBookmarks}
             onClose={() => setViewMode("apps")}
             showMessage={showMessage}
           />
@@ -605,14 +679,55 @@ function App() {
         showMessage={showMessage}
       />
 
+      <AppSettings
+        show={showAppSettings}
+        onClose={() => setShowAppSettings(false)}
+        showMessage={showMessage}
+      />
+
       {viewMode === "apps" && (
-        <button
-          className="proxy-settings-btn"
-          onClick={() => setShowProxy(true)}
-          title="代理设置"
-        >
-          🔧
-        </button>
+        <div style={{ position: "fixed", bottom: "100px", right: "20px", display: "flex", flexDirection: "column", gap: "16px", zIndex: 1000 }}>
+          <button
+            onClick={() => setShowAppSettings(true)}
+            title="应用设置"
+            style={{
+              width: "50px",
+              height: "50px",
+              borderRadius: "50%",
+              border: "none",
+              background: "linear-gradient(135deg, #11998e 0%, #38ef7d 100%)",
+              color: "white",
+              fontSize: "20px",
+              cursor: "pointer",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            ⚙️
+          </button>
+          <button
+            onClick={() => setShowProxy(true)}
+            title="代理设置"
+            style={{
+              width: "50px",
+              height: "50px",
+              borderRadius: "50%",
+              border: "none",
+              background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+              color: "white",
+              fontSize: "20px",
+              cursor: "pointer",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            🔧
+          </button>
+        </div>
       )}
 
       <Test />

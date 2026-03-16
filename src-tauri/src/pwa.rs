@@ -1,8 +1,8 @@
 use rusqlite::{Connection, OptionalExtension};
 use std::collections::HashMap;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
 
-use crate::db::get_app_data_dir;
+use crate::db::{get_app_data_dir, DbConnection};
 use crate::models::{AppInfo, CommandResponse, InstallRequest};
 use crate::utils::{create_app_dirs, generate_app_id, now_timestamp};
 
@@ -11,6 +11,7 @@ use crate::utils::{create_app_dirs, generate_app_id, now_timestamp};
 pub async fn install_pwa(
     request: InstallRequest,
     app: AppHandle,
+    db: State<'_, DbConnection>,
 ) -> Result<CommandResponse<AppInfo>, String> {
     let app_id = generate_app_id();
     let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -18,12 +19,12 @@ pub async fn install_pwa(
 
     let manifest = fetch_manifest_info(&request.url)
         .await
-       .map_err(|e| format!("解析 Manifest 失败: {}", e))?;
+        .map_err(|e| format!("解析 Manifest 失败: {}", e))?;
 
     let name = request
         .name
-         .unwrap_or_else(|| manifest.name.clone().unwrap_or("未知应用".to_string()));
- 
+        .unwrap_or_else(|| manifest.name.clone().unwrap_or("未知应用".to_string()));
+
     let now = now_timestamp();
     let app_info = AppInfo {
         id: app_id.clone(),
@@ -42,19 +43,19 @@ pub async fn install_pwa(
             .unwrap_or_else(|| "standalone".to_string()),
     };
 
-    let conn = crate::DB_CONN.get().ok_or("DB not initialized")?.lock().map_err(|e| e.to_string())?;
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
     save_app_to_db(&conn, &app_info).map_err(|e| e.to_string())?;
     Ok(CommandResponse::success(app_info))
 }
-
 
 /// 卸载 PWA 应用
 #[tauri::command]
 pub fn uninstall_pwa(
     app_id: String,
     _app: AppHandle,
+    db: State<'_, DbConnection>,
 ) -> Result<CommandResponse<bool>, String> {
-    let conn = crate::DB_CONN.get().ok_or("DB not initialized")?.lock().map_err(|e| e.to_string())?;
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM apps WHERE id = ?", [app_id])
         .map_err(|e| e.to_string())?;
     Ok(CommandResponse::success(true))
@@ -62,9 +63,11 @@ pub fn uninstall_pwa(
 
 /// 获取应用列表
 #[tauri::command]
-pub fn list_apps() -> Result<CommandResponse<Vec<AppInfo>>, String> {
-    let conn = crate::DB_CONN.get().ok_or("DB not initialized")?.lock().map_err(|e| e.to_string())?;
-
+pub fn list_apps(db: State<'_, DbConnection>) -> Result<CommandResponse<Vec<AppInfo>>, String> {
+    let conn = db
+        .inner()
+        .lock()
+        .map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
     let mut stmt = conn
         .prepare("SELECT * FROM apps ORDER BY installed_at DESC")
         .map_err(|e| e.to_string())?;
@@ -96,16 +99,16 @@ pub fn list_apps() -> Result<CommandResponse<Vec<AppInfo>>, String> {
 pub fn launch_app(
     app_id: String,
     app: AppHandle,
+    db: State<'_, DbConnection>,
 ) -> Result<CommandResponse<String>, String> {
-    let conn = crate::DB_CONN.get().ok_or("DB not initialized")?.lock().map_err(|e| e.to_string())?;
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
     let (_app_name, app_url, _display_mode): (String, String, String) = conn
         .query_row(
-             "SELECT name, url, display_mode FROM apps WHERE id = ?",
+            "SELECT name, url, display_mode FROM apps WHERE id = ?",
             [app_id.clone()],
-             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
-         .map_err(|e| format!("未找到应用：{}", e))?;
-
+        .map_err(|e| format!("未找到应用：{}", e))?;
 
     #[cfg(not(mobile))]
     {
@@ -156,10 +159,10 @@ pub fn launch_app(
 
 #[tauri::command]
 pub fn get_app_info(
-    app_id: String
+    app_id: String,
+    db: State<'_, DbConnection>,
 ) -> Result<CommandResponse<AppInfo>, String> {
-    let conn = crate::DB_CONN.get().ok_or("DB not initialized")?.lock().map_err(|e| e.to_string())?;
-
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
     let app_info = conn
         .query_row("SELECT * FROM apps WHERE id = ?", [app_id], |row| {
             Ok(AppInfo {
@@ -195,9 +198,10 @@ pub fn list_running_pwas(app: AppHandle) -> Result<CommandResponse<Vec<String>>,
 #[tauri::command]
 pub fn update_pwa(
     app_id: String,
-    app: tauri::AppHandle
+    app: tauri::AppHandle,
+    db: State<'_, DbConnection>,
 ) -> Result<CommandResponse<bool>, String> {
-    let conn = crate::DB_CONN.get().ok_or("DB not initialized")?.lock().map_err(|e| e.to_string())?;
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
     let app_url: String = conn
         .query_row("SELECT url FROM apps WHERE id = ?", [app_id], |row| {
             row.get(0)
@@ -241,9 +245,10 @@ pub fn close_pwa_window(
 
 #[tauri::command]
 pub fn kv_get_all(
-    app_id: String
+    app_id: String,
+    db: State<'_, DbConnection>,
 ) -> Result<CommandResponse<HashMap<String, String>>, String> {
-    let conn = crate::DB_CONN.get().ok_or("DB not initialized")?.lock().map_err(|e| e.to_string())?;
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare("SELECT key, value FROM kv_store WHERE app_id = ?")
         .map_err(|e| e.to_string())?;
@@ -268,9 +273,10 @@ pub fn kv_set(
     app_id: String,
     key: String,
     value: String,
+    db: State<'_, DbConnection>,
 ) -> Result<CommandResponse<bool>, String> {
     log::info!("[KV] Set: app_id={}, key={}", app_id, key);
-    let conn = crate::DB_CONN.get().ok_or("DB not initialized")?.lock().map_err(|e| e.to_string())?;
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
     conn.execute(
         "INSERT OR REPLACE INTO kv_store (app_id, key, value) VALUES (?, ?, ?)",
         [app_id, key, value],
@@ -283,9 +289,10 @@ pub fn kv_set(
 pub fn kv_get(
     app_id: String,
     key: String,
+    db: State<'_, DbConnection>,
 ) -> Result<CommandResponse<Option<String>>, String> {
     log::info!("[KV] Get: app_id={}, key={}", app_id, key);
-        let conn = crate::DB_CONN.get().ok_or("DB not initialized")?.lock().map_err(|e| e.to_string())?;
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
     let value = conn
         .query_row(
             "SELECT value FROM kv_store WHERE app_id = ? AND key = ?",
@@ -300,9 +307,10 @@ pub fn kv_get(
 #[tauri::command]
 pub fn kv_remove(
     app_id: String,
-    key: String
+    key: String,
+    db: State<'_, DbConnection>,
 ) -> Result<CommandResponse<bool>, String> {
-    let conn = crate::DB_CONN.get().ok_or("DB not initialized")?.lock().map_err(|e| e.to_string())?;
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
     conn.execute(
         "DELETE FROM kv_store WHERE app_id = ? AND key = ?",
         [app_id, key],
@@ -314,8 +322,9 @@ pub fn kv_remove(
 #[tauri::command]
 pub fn kv_clear(
     app_id: String,
+    db: State<'_, DbConnection>,
 ) -> Result<CommandResponse<bool>, String> {
-    let conn = crate::DB_CONN.get().ok_or("DB not initialized")?.lock().map_err(|e| e.to_string())?;
+    let conn = db.inner().lock().map_err(|e| e.to_string())?;
     if app_id == "*" {
         // 清除所有 KV 数据
         conn.execute("DELETE FROM kv_store", [])

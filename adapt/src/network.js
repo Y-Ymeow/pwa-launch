@@ -86,7 +86,9 @@ function proxyViaLocalServer(url, method, headers, body, isMedia = false) {
         // FormData 无法直接转换为字符串，需要特殊处理
         const entries = [];
         for (const [key, value] of body.entries()) {
-          entries.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+          entries.push(
+            `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+          );
         }
         bodyString = entries.join("&");
       } else {
@@ -207,8 +209,7 @@ export function createNetwork(bridge) {
         }
 
         // 使用简单的 User-Agent（与 curl 一致）
-        headers["User-Agent"] =
-          "Mozilla/5.0 (Linux; Android 13; TECNO BG6 Build/TP1A.220624.014) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.7632.159 Mobile Safari/537.36";
+        headers["User-Agent"] = navigator.userAgent;
 
         return await proxyViaLocalServer(
           urlStr,

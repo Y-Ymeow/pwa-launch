@@ -3,6 +3,9 @@ package com.plugin.audioplayer
 import android.app.Activity
 import android.net.Uri
 import android.util.Log
+import android.os.Build
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.PlaybackException
@@ -67,18 +70,30 @@ class AudioPlayerPlugin(private val activity: Activity): Plugin(activity) {
     @Command
     fun play(invoke: Invoke) {
         val args = invoke.parseArgs(PlayArgs::class.java)
-        val url = args.url ?: ""
+        var url = args.url ?: ""
 
         Log.d(TAG, "Playing: $url")
-        currentUrl = url
 
         try {
             player?.let {
-                val mediaItem = if (url.startsWith("content://")) {
-                    MediaItem.fromUri(Uri.parse(url))
-                } else {
-                    MediaItem.fromUri(url)
+                // 将本地文件路径转换为 content:// URI
+                val uri = when {
+                    url.startsWith("content://") -> Uri.parse(url)
+                    url.startsWith("/") -> {
+                        // 本地文件路径，使用 FileProvider
+                        val file = File(url)
+                        FileProvider.getUriForFile(
+                            activity,
+                            "${activity.packageName}.fileprovider",
+                            file
+                        )
+                    }
+                    else -> Uri.parse(url)
                 }
+
+                currentUrl = url
+                val mediaItem = MediaItem.fromUri(uri)
+
                 it.setMediaItem(mediaItem)
                 it.repeatMode = if (isLooping) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
                 it.prepare()

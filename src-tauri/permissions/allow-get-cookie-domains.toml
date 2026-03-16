@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-get-cookie-domains"
+description = "Enables the get_cookie_domains command to get all domains with cookies."
+commands.allow = ["get_cookie_domains"]

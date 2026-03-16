@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-get-app-config"
+description = "Allows getting app config values"
+commands.allow = ["get_app_config"]

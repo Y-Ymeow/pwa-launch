@@ -2,141 +2,141 @@ use crate::models::CommandResponse;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 // 浏览器 UI 注入脚本 - 使用 Shadow DOM 隔离样式
-const BROWSER_UI_JS: &str = r#"
-(function() {
-  if (window.__BROWSER_UI_INJECTED__) return;
-  window.__BROWSER_UI_INJECTED__ = true;
-  
-  const host = document.createElement('div');
-  host.id = '__browser_ui_host__';
-  host.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483647;pointer-events:none;';
-  document.documentElement.appendChild(host);
-  
-  const shadow = host.attachShadow({ mode: 'open' });
-  
-  shadow.innerHTML = `
-    <style>
-      * { box-sizing: border-box !important; margin: 0 !important; padding: 0 !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important; }
-      .browser-bar {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%) !important;
-        padding: 8px 12px !important; display: flex !important; align-items: center !important; gap: 8px !important;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.3) !important; pointer-events: auto !important;
-        border-bottom: 1px solid rgba(255,255,255,0.1) !important;
-      }
-      .browser-btn {
-        background: rgba(255,255,255,0.1) !important; border: none !important; color: white !important;
-        width: 36px !important; height: 36px !important; border-radius: 8px !important;
-        cursor: pointer !important; font-size: 18px !important; display: flex !important;
-        align-items: center !important; justify-content: center !important; transition: all 0.2s !important;
-        pointer-events: auto !important;
-      }
-      .browser-btn:hover { background: rgba(255,255,255,0.2) !important; transform: translateY(-1px) !important; }
-      .address-input {
-        flex: 1 !important; background: rgba(0,0,0,0.3) !important; border: 1px solid rgba(255,255,255,0.1) !important;
-        color: white !important; padding: 8px 12px !important; border-radius: 8px !important;
-        font-size: 14px !important; outline: none !important; pointer-events: auto !important;
-      }
-      .address-input:focus { border-color: #667eea !important; box-shadow: 0 0 0 2px rgba(102,126,234,0.3) !important; }
-      .install-btn {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; border: none !important;
-        color: white !important; padding: 8px 16px !important; border-radius: 8px !important;
-        cursor: pointer !important; font-size: 13px !important; font-weight: 500 !important;
-        white-space: nowrap !important; pointer-events: auto !important; transition: all 0.2s !important;
-      }
-      .install-btn:hover { transform: translateY(-1px) !important; box-shadow: 0 4px 12px rgba(102,126,234,0.4) !important; }
-      .spacer { height: 52px !important; } 
-    </style>
-    <div class="browser-bar" data-browser-ui="true">
-      <button class="browser-btn" id="__browser_back__" title="后退">←</button>
-      <button class="browser-btn" id="__browser_forward__" title="前进">→</button>
-      <button class="browser-btn" id="__browser_home__" title="返回主页" style="font-size: 14px;">🏠</button>
-      <button class="browser-btn" id="__browser_refresh__" title="刷新">↻</button>
-      <input type="text" class="address-input" id="__browser_address__" placeholder="输入网址回车跳转..." />
-      <button class="browser-btn" id="__browser_go__" title="跳转" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important; font-size: 12px; font-weight: bold;">GO</button>
-      <button class="install-btn" id="__browser_install__" title="安装为应用">➕</button>
-    </div>
-    <div class="spacer"></div>
-  `;
-  
-  const backBtn = shadow.getElementById('__browser_back__');
-  const refreshBtn = shadow.getElementById('__browser_refresh__');
-  const addressInput = shadow.getElementById('__browser_address__');
-  const installBtn = shadow.getElementById('__browser_install__');
-  
-  addressInput.value = location.href;
-  
-  backBtn.addEventListener('click', () => {
-    window.parent.postMessage({ type: 'BROWSER_GO_BACK' }, '*');
-  });
-  
-  refreshBtn.addEventListener('click', () => location.reload());
-  
-  addressInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      let url = addressInput.value.trim();
-      if (!url.startsWith('http')) url = 'https://' + url;
-      window.parent.postMessage({ type: 'BROWSER_NAVIGATE', url }, '*');
-    }
-  });
-  
-  installBtn.addEventListener('click', () => {
-    window.parent.postMessage({ type: 'BROWSER_INSTALL', url: location.href }, '*');
-  });
-  
-  setInterval(() => {
-    if (addressInput.value !== location.href) addressInput.value = location.href;
-  }, 1000);
-})();
-"#;
-
-// 浏览器 UI 注入脚本 - 通过 eval 注入
 pub const INJECT_BROWSER_UI: &str = r#"
 (function() {
-    // 检查是否在浏览器模式（通过检查是否存在浏览器视图标志）
+    // 检查是否应该注入
     if (!window.__BROWSER_MODE__ && window.parent !== window) {
-        // 在 iframe 中且不是浏览器模式，不注入
         return;
     }
-
     if (window.location.href.indexOf('localhost') !== -1) {
         return;
     }
     
-    // 检查 UI 是否已存在且用户未在输入
+    // 存储状态
+    let uiData = { bookmarks: [], history: [] };
+    let dataLoaded = false;
+    
+    // 使用 appdata:// 协议访问全局数据（Android 需要用 http://appdata.localhost）
+    const DATA_API_URL = navigator.userAgent.includes('Android')
+        ? 'http://appdata.localhost'
+        : 'appdata://localhost';
+    
+    // 从 KV 加载数据（使用与 App.tsx 相同的 key）
+    async function loadData() {
+        try {
+            // 加载书签
+            const bookmarksRes = await fetch(DATA_API_URL, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'get', app_id: 'browser', key: 'bookmarks' })
+            });
+            const bookmarksResult = await bookmarksRes.json();
+            if (bookmarksResult.success && bookmarksResult.data) {
+                uiData.bookmarks = JSON.parse(bookmarksResult.data);
+            }
+
+            // 加载历史
+            const historyRes = await fetch(DATA_API_URL, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'get', app_id: 'browser', key: 'history' })
+            });
+            const historyResult = await historyRes.json();
+            if (historyResult.success && historyResult.data) {
+                uiData.history = JSON.parse(historyResult.data);
+            }
+
+            dataLoaded = true;
+            console.log('[Browser UI] Data loaded:', uiData);
+        } catch (e) {
+            console.log('[Browser UI] Failed to load data:', e);
+        }
+    }
+
+    // 保存数据到 KV（分开保存，与 App.tsx 保持一致）
+    async function saveData() {
+        try {
+            console.log('[Browser UI] Saving data:', uiData);
+            await fetch(DATA_API_URL, {
+                method: 'POST',
+                body: JSON.stringify({
+                    action: 'set',
+                    app_id: 'browser',
+                    key: 'bookmarks',
+                    value: JSON.stringify(uiData.bookmarks)
+                })
+            });
+            await fetch(DATA_API_URL, {
+                method: 'POST',
+                body: JSON.stringify({
+                    action: 'set',
+                    app_id: 'browser',
+                    key: 'history',
+                    value: JSON.stringify(uiData.history)
+                })
+            });
+        } catch (e) {
+            console.log('[Browser UI] Failed to save data:', e);
+        }
+    }
+    
+    // 添加到历史
+    async function addToHistory(url, title) {
+        // 先加载最新数据，避免覆盖
+        await loadData();
+        // 检查是否已存在
+        if (uiData.history.some(h => h.url === url)) {
+            // 移到最前面
+            uiData.history = uiData.history.filter(h => h.url !== url);
+        }
+        uiData.history.unshift({ url, title: title || url, timestamp: Date.now() });
+        if (uiData.history.length > 100) uiData.history = uiData.history.slice(0, 100);
+        await saveData();
+    }
+    
+    // 智能 URL 处理
+    function processUrl(url) {
+        url = url.trim();
+        if (!url) return '';
+        if (url.startsWith('http://') || url.startsWith('https://')) return url;
+        if (url.startsWith('localhost') || url.startsWith('127.') || /^\d+\.\d+\.\d+\.\d+/.test(url)) {
+            return 'http://' + url;
+        }
+        return 'https://' + url;
+    }
+    
+    // 检查 UI 是否需要注入
     function shouldInject() {
         const host = document.getElementById('__browser_ui_host__');
         if (!host) return true;
-        
-        // 检查用户是否正在输入
         const shadow = host.shadowRoot;
         if (shadow) {
             const addressInput = shadow.getElementById('__browser_address__');
             if (addressInput && (addressInput === document.activeElement || addressInput.matches(':focus'))) {
-                return false; // 用户正在输入，不重新注入
+                return false;
             }
         }
-        return false; // UI 已存在，不需要重新注入
+        return false;
     }
     
-    // 每次页面加载都尝试注入
-    function injectUI() {
+    // 检测是否为移动设备
+    function isMobile() {
+        return window.innerWidth <= 768 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    }
+    
+    // 注入 UI
+    async function injectUI() {
         if (!shouldInject()) return;
         
-        // 如果已存在，先移除
         const existingHost = document.getElementById('__browser_ui_host__');
         if (existingHost) {
             existingHost.remove();
         }
         
-        // 给 body 添加 padding-top，避免内容被遮挡
-        // document.body.style.paddingTop = '52px';
-        document.documentElement.style.paddingTop = '52px';
+        document.documentElement.style.paddingTop = isMobile() ? '48px' : '52px';
         
-        // 修复浮动/固定定位的头部元素（排除 browser-bar 自身）
+        // 修复固定定位元素
         const style = document.createElement('style');
         style.id = '__browser_ui_fix_style__';
         style.textContent = `
-            /* 给固定/浮动定位的头部元素添加顶部间距 */
             body *[style*="position: fixed"][style*="top: 0"]:not([data-browser-ui]),
             body *[style*="position:fixed"][style*="top:0"]:not([data-browser-ui]),
             body *[style*="position: sticky"][style*="top: 0"]:not([data-browser-ui]),
@@ -145,13 +145,33 @@ pub const INJECT_BROWSER_UI: &str = r#"
             body .header:not([data-browser-ui]),
             body #header:not([data-browser-ui]),
             body nav:not([data-browser-ui]),
-            body .nav:not([data-browser-ui])
-            {
-                top: 52px !important;
+            body .nav:not([data-browser-ui]) {
+                top: ${isMobile() ? '48px' : '52px'} !important;
+            }
+            /* 移动端视口优化 */
+            @media (max-width: 768px) {
+                html, body {
+                    overflow-x: auto !important;
+                    -webkit-overflow-scrolling: touch !important;
+                }
+                meta[name="viewport"] {
+                    content: "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" !important;
+                }
             }
         `;
         if (!document.getElementById('__browser_ui_fix_style__')) {
             document.head.appendChild(style);
+        }
+        
+        // 设置移动端视口
+        if (isMobile()) {
+            let viewport = document.querySelector('meta[name="viewport"]');
+            if (!viewport) {
+                viewport = document.createElement('meta');
+                viewport.name = 'viewport';
+                document.head.appendChild(viewport);
+            }
+            viewport.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
         }
         
         const host = document.createElement('div');
@@ -160,164 +180,490 @@ pub const INJECT_BROWSER_UI: &str = r#"
         
         const shadow = host.attachShadow({ mode: 'open' });
         
+        const barHeight = isMobile() ? '48px' : '52px';
+        const btnSize = isMobile() ? '36px' : '36px';
+        const btnFontSize = isMobile() ? '14px' : '16px';
+        
         shadow.innerHTML = `
             <style>
-                * { box-sizing: border-box !important; margin: 0 !important; padding: 0 !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important; }
+                * { box-sizing: border-box !important; margin: 0 !important; padding: 0 !important; 
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important; }
                 .browser-bar {
                     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%) !important;
-                    padding: 8px 12px !important; display: flex !important; align-items: center !important; gap: 8px !important;
+                    padding: ${isMobile() ? '6px 8px' : '8px 12px'} !important;
+                    display: flex !important; flex-direction: column !important;
                     box-shadow: 0 2px 10px rgba(0,0,0,0.3) !important; pointer-events: auto !important;
                     border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+                    min-height: ${barHeight} !important;
+                }
+                .browser-bar-row {
+                    display: flex !important; align-items: center !important;
+                    gap: ${isMobile() ? '4px' : '8px'} !important; width: 100% !important;
+                }
+                .browser-bar-row.secondary {
+                    margin-top: 6px !important; padding-top: 6px !important;
+                    border-top: 1px solid rgba(255,255,255,0.1) !important;
+                    flex-wrap: wrap !important; gap: 6px !important;
                 }
                 .browser-btn {
                     background: rgba(255,255,255,0.1) !important; border: none !important; color: white !important;
-                    width: 36px !important; height: 36px !important; border-radius: 8px !important;
-                    cursor: pointer !important; font-size: 16px !important; display: flex !important;
-                    align-items: center !important; justify-content: center !important; transition: all 0.2s !important;
+                    width: ${btnSize} !important; height: ${btnSize} !important; border-radius: 8px !important;
+                    cursor: pointer !important; font-size: ${btnFontSize} !important; display: flex !important;
+                    align-items: center !important; justify-content: center !important; 
+                    transition: all 0.2s !important; pointer-events: auto !important;
+                    flex-shrink: 0 !important; min-width: ${btnSize} !important;
+                }
+                .browser-btn:hover { background: rgba(255,255,255,0.2) !important; }
+                .browser-btn:disabled { opacity: 0.4 !important; cursor: not-allowed !important; }
+                .browser-btn.nav-btn { font-size: 18px !important; }
+                .browser-btn.function-btn { font-size: 18px !important; font-weight: bold !important; }
+                .browser-btn.function-btn.active { background: rgba(102,126,234,0.5) !important; }
+                .browser-btn.go-btn { 
+                    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important;
+                    font-size: 12px !important; font-weight: bold !important;
+                    width: auto !important; padding: 0 12px !important;
+                }
+                .browser-btn.cancel-btn {
+                    background: rgba(239,68,68,0.3) !important; width: auto !important;
+                    padding: 0 10px !important; font-size: 12px !important;
+                }
+                .browser-btn.function-item {
+                    width: auto !important; padding: 6px 10px !important; font-size: 12px !important;
+                    display: flex !important; align-items: center !important; gap: 4px !important;
+                }
+                .browser-btn.function-item.active { background: rgba(102,126,234,0.5) !important; }
+                .address-input-wrapper {
+                    flex: 1 !important; position: relative !important;
+                }
+                .address-input {
+                    width: 100% !important; background: rgba(0,0,0,0.3) !important;
+                    border: 1px solid rgba(255,255,255,0.1) !important; color: white !important;
+                    padding: ${isMobile() ? '6px 10px' : '8px 12px'} !important; border-radius: 8px !important;
+                    font-size: ${isMobile() ? '13px' : '14px'} !important; outline: none !important;
                     pointer-events: auto !important;
                 }
-                .browser-btn:hover { background: rgba(255,255,255,0.2) !important; transform: translateY(-1px) !important; }
-                .address-input {
-                    flex: 1 !important; background: rgba(0,0,0,0.3) !important; border: 1px solid rgba(255,255,255,0.1) !important;
-                    color: white !important; padding: 8px 12px !important; border-radius: 8px !important;
-                    font-size: 14px !important; outline: none !important; pointer-events: auto !important;
-                }
                 .address-input:focus { border-color: #667eea !important; box-shadow: 0 0 0 2px rgba(102,126,234,0.3) !important; }
-                .install-btn, .go-btn, .home-btn, .cookie-btn {
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; border: none !important;
-                    color: white !important; padding: 8px 12px !important; border-radius: 8px !important;
-                    cursor: pointer !important; font-size: 13px !important; font-weight: 500 !important;
-                    white-space: nowrap !important; pointer-events: auto !important; transition: all 0.2s !important;
+                .suggestions-dropdown {
+                    position: absolute !important; top: 100% !important; left: 0 !important; right: 0 !important;
+                    margin-top: 4px !important; background: #1a1a2e !important; border-radius: 8px !important;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important; max-height: 200px !important;
+                    overflow-y: auto !important; z-index: 2147483648 !important; display: none !important;
                 }
-                .go-btn { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important; }
-                .home-btn { background: rgba(255,255,255,0.15) !important; }
-                .cookie-btn { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%) !important; }
-                .browser-btn:hover, .install-btn:hover, .go-btn:hover, .home-btn:hover, .cookie-btn:hover { 
-                    transform: translateY(-1px) !important; box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important; 
+                .suggestions-dropdown.show { display: block !important; }
+                .suggestion-item {
+                    padding: 8px 12px !important; cursor: pointer !important; color: white !important;
+                    font-size: 13px !important; border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+                    display: flex !important; align-items: center !important; gap: 8px !important;
                 }
-                .spacer { height: 52px !important; }
+                .suggestion-item:hover { background: rgba(255,255,255,0.1) !important; }
+                .suggestion-item:last-child { border-bottom: none !important; }
+                .panel-overlay {
+                    position: fixed !important; top: ${barHeight} !important; left: 0 !important; right: 0 !important;
+                    bottom: 0 !important; background: rgba(0,0,0,0.8) !important; z-index: 2147483646 !important;
+                    display: none !important; pointer-events: auto !important;
+                }
+                .panel-overlay.show { display: block !important; }
+                .browser-panel {
+                    position: fixed !important; top: ${barHeight} !important; left: 0 !important; right: 0 !important;
+                    max-height: 70vh !important; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%) !important;
+                    border-bottom: 1px solid rgba(255,255,255,0.1) !important; z-index: 2147483647 !important;
+                    display: none !important; flex-direction: column !important; pointer-events: auto !important;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
+                }
+                .browser-panel.show { display: flex !important; }
+                .panel-header {
+                    display: flex !important; justify-content: space-between !important; align-items: center !important;
+                    padding: 12px !important; border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+                }
+                .panel-title { color: white !important; font-size: 14px !important; font-weight: 600 !important; }
+                .panel-close {
+                    background: none !important; border: none !important; color: rgba(255,255,255,0.6) !important;
+                    font-size: 20px !important; cursor: pointer !important; padding: 4px !important;
+                }
+                .panel-close:hover { color: white !important; }
+                .panel-content {
+                    overflow-y: auto !important; max-height: calc(70vh - 50px) !important;
+                }
+                .panel-item {
+                    display: flex !important; align-items: center !important; gap: 10px !important;
+                    padding: 10px 12px !important; border-bottom: 1px solid rgba(255,255,255,0.05) !important;
+                    cursor: pointer !important; color: white !important;
+                }
+                .panel-item:hover { background: rgba(255,255,255,0.05) !important; }
+                .panel-item-icon { font-size: 16px !important; flex-shrink: 0 !important; }
+                .panel-item-info { flex: 1 !important; min-width: 0 !important; }
+                .panel-item-title { font-size: 13px !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
+                .panel-item-url { font-size: 11px !important; color: rgba(255,255,255,0.5) !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
+                .panel-item-time { font-size: 11px !important; color: rgba(255,255,255,0.4) !important; flex-shrink: 0 !important; }
+                .panel-item-delete {
+                    background: none !important; border: none !important; color: rgba(255,255,255,0.4) !important;
+                    font-size: 14px !important; cursor: pointer !important; padding: 4px !important;
+                }
+                .panel-item-delete:hover { color: #f5576c !important; }
+                .panel-empty {
+                    padding: 40px !important; text-align: center !important; color: rgba(255,255,255,0.4) !important;
+                    font-size: 14px !important;
+                }
+                .panel-actions {
+                    display: flex !important; gap: 10px !important; align-items: center !important;
+                }
+                .panel-clear-btn {
+                    background: rgba(239,68,68,0.2) !important; border: none !important; color: #f5576c !important;
+                    padding: 4px 10px !important; border-radius: 4px !important; font-size: 12px !important;
+                    cursor: pointer !important;
+                }
+                .panel-clear-btn:hover { background: rgba(239,68,68,0.3) !important; }
+                .hidden { display: none !important; }
+                @media (max-width: 768px) {
+                    .browser-bar-row.secondary { max-height: 80px !important; overflow-y: auto !important; }
+                }
             </style>
             <div class="browser-bar">
-                <button class="browser-btn" id="__browser_back__" title="后退">←</button>
-                <button class="browser-btn" id="__browser_forward__" title="前进">→</button>
-                <button class="home-btn" id="__browser_home__" title="返回主页">🏠</button>
-                <button class="browser-btn" id="__browser_refresh__" title="刷新">↻</button>
-                <input type="text" class="address-input" id="__browser_address__" placeholder="输入网址回车跳转..." />
-                <button class="go-btn" id="__browser_go__" title="跳转">GO</button>
-                <button class="cookie-btn" id="__browser_cookie__" title="同步 Cookies">🍪</button>
-                <button class="install-btn" id="__browser_install__" title="安装为应用">➕</button>
+                <div class="browser-bar-row primary" id="__browser_row_primary__">
+                    <button class="browser-btn nav-btn" id="__browser_back__" title="后退">←</button>
+                    <button class="browser-btn nav-btn" id="__browser_forward__" title="前进">→</button>
+                    <button class="browser-btn nav-btn" id="__browser_home__" title="主页">⌂</button>
+                    <div class="address-input-wrapper">
+                        <input type="text" class="address-input" id="__browser_address__" placeholder="输入网址..." />
+                        <div class="suggestions-dropdown" id="__browser_suggestions__"></div>
+                    </div>
+                    <button class="browser-btn go-btn" id="__browser_go__">GO</button>
+                    <button class="browser-btn cancel-btn hidden" id="__browser_cancel__">取消</button>
+                    <button class="browser-btn function-btn" id="__browser_functions__" title="更多">⋮</button>
+                </div>
+                <div class="browser-bar-row secondary hidden" id="__browser_row_secondary__">
+                    <button class="browser-btn function-item" id="__browser_bookmark_add__">⭐ 收藏</button>
+                    <button class="browser-btn function-item" id="__browser_bookmarks__">📑 收藏夹</button>
+                    <button class="browser-btn function-item" id="__browser_history__">🕐 历史</button>
+                    <button class="browser-btn function-item" id="__browser_cookie__">🍪 同步</button>
+                </div>
             </div>
-            <div class="spacer"></div>
+            <div class="panel-overlay" id="__browser_panel_overlay__"></div>
+            <div class="browser-panel" id="__browser_panel_bookmarks__">
+                <div class="panel-header">
+                    <span class="panel-title">📑 收藏夹</span>
+                    <button class="panel-close" id="__browser_panel_bookmarks_close__">×</button>
+                </div>
+                <div class="panel-content" id="__browser_bookmarks_list__"></div>
+            </div>
+            <div class="browser-panel" id="__browser_panel_history__">
+                <div class="panel-header">
+                    <div class="panel-actions">
+                        <button class="panel-clear-btn" id="__browser_history_clear__">清空</button>
+                        <button class="panel-close" id="__browser_panel_history_close__">×</button>
+                    </div>
+                    <span class="panel-title">🕐 历史记录</span>
+                </div>
+                <div class="panel-content" id="__browser_history_list__"></div>
+            </div>
+            <div class="spacer" style="height: ${barHeight} !important;"></div>
         `;
         
         document.documentElement.appendChild(host);
         
-        const backBtn = shadow.getElementById('__browser_back__');
-        const forwardBtn = shadow.getElementById('__browser_forward__');
-        const homeBtn = shadow.getElementById('__browser_home__');
-        const refreshBtn = shadow.getElementById('__browser_refresh__');
-        const addressInput = shadow.getElementById('__browser_address__');
-        const goBtn = shadow.getElementById('__browser_go__');
-        const installBtn = shadow.getElementById('__browser_install__');
-        const cookieBtn = shadow.getElementById('__browser_cookie__');
+        // 获取元素引用
+        const els = {
+            backBtn: shadow.getElementById('__browser_back__'),
+            forwardBtn: shadow.getElementById('__browser_forward__'),
+            homeBtn: shadow.getElementById('__browser_home__'),
+            addressInput: shadow.getElementById('__browser_address__'),
+            goBtn: shadow.getElementById('__browser_go__'),
+            cancelBtn: shadow.getElementById('__browser_cancel__'),
+            functionsBtn: shadow.getElementById('__browser_functions__'),
+            primaryRow: shadow.getElementById('__browser_row_primary__'),
+            secondaryRow: shadow.getElementById('__browser_row_secondary__'),
+            suggestions: shadow.getElementById('__browser_suggestions__'),
+            bookmarkAddBtn: shadow.getElementById('__browser_bookmark_add__'),
+            bookmarksBtn: shadow.getElementById('__browser_bookmarks__'),
+            historyBtn: shadow.getElementById('__browser_history__'),
+            cookieBtn: shadow.getElementById('__browser_cookie__'),
+            panelOverlay: shadow.getElementById('__browser_panel_overlay__'),
+            bookmarksPanel: shadow.getElementById('__browser_panel_bookmarks__'),
+            historyPanel: shadow.getElementById('__browser_panel_history__'),
+            bookmarksList: shadow.getElementById('__browser_bookmarks_list__'),
+            historyList: shadow.getElementById('__browser_history_list__'),
+            bookmarksClose: shadow.getElementById('__browser_panel_bookmarks_close__'),
+            historyClose: shadow.getElementById('__browser_panel_history_close__'),
+            historyClear: shadow.getElementById('__browser_history_clear__'),
+        };
         
-        addressInput.value = location.href;
+        // 当前状态
+        let isInputMode = false;
+        let showSecondary = false;
+        let activePanel = null;
         
-        // 后退
-        backBtn.addEventListener('click', () => {
-            history.back();
+        // 更新 UI 状态
+        function updateUI() {
+            els.addressInput.value = location.href;
+            
+            if (isInputMode) {
+                els.backBtn.classList.add('hidden');
+                els.forwardBtn.classList.add('hidden');
+                els.homeBtn.classList.add('hidden');
+                els.functionsBtn.classList.add('hidden');
+                els.cancelBtn.classList.remove('hidden');
+                els.secondaryRow.classList.add('hidden');
+                showSecondary = false;
+                els.functionsBtn.classList.remove('active');
+            } else {
+                els.backBtn.classList.remove('hidden');
+                els.forwardBtn.classList.remove('hidden');
+                els.homeBtn.classList.remove('hidden');
+                els.functionsBtn.classList.remove('hidden');
+                els.cancelBtn.classList.add('hidden');
+                els.secondaryRow.classList.toggle('hidden', !showSecondary);
+                els.functionsBtn.classList.toggle('active', showSecondary);
+            }
+        }
+        
+        // 显示面板
+        function showPanel(type) {
+            activePanel = type;
+            els.panelOverlay.classList.add('show');
+            if (type === 'bookmarks') {
+                renderBookmarks();
+                els.bookmarksPanel.classList.add('show');
+                els.historyPanel.classList.remove('show');
+            } else if (type === 'history') {
+                renderHistory();
+                els.historyPanel.classList.add('show');
+                els.bookmarksPanel.classList.remove('show');
+            }
+        }
+        
+        // 隐藏面板
+        function hidePanels() {
+            activePanel = null;
+            els.panelOverlay.classList.remove('show');
+            els.bookmarksPanel.classList.remove('show');
+            els.historyPanel.classList.remove('show');
+        }
+        
+        // 渲染收藏夹
+        function renderBookmarks() {
+            if (uiData.bookmarks.length === 0) {
+                els.bookmarksList.innerHTML = '<div class="panel-empty">暂无收藏</div>';
+                return;
+            }
+            els.bookmarksList.innerHTML = uiData.bookmarks.map((b, i) => `
+                <div class="panel-item" data-url="${b.url}">
+                    <span class="panel-item-icon">⭐</span>
+                    <div class="panel-item-info">
+                        <div class="panel-item-title">${b.title || b.url}</div>
+                        <div class="panel-item-url">${b.url}</div>
+                    </div>
+                    <button class="panel-item-delete" data-index="${i}" title="删除">🗑️</button>
+                </div>
+            `).join('');
+            
+            // 绑定点击事件
+            els.bookmarksList.querySelectorAll('.panel-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    if (!e.target.classList.contains('panel-item-delete')) {
+                        const url = item.getAttribute('data-url');
+                        if (url) window.location.href = url;
+                        hidePanels();
+                    }
+                });
+            });
+            els.bookmarksList.querySelectorAll('.panel-item-delete').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    // 先加载最新数据
+                    await loadData();
+                    const index = parseInt(btn.getAttribute('data-index'));
+                    if (index >= 0 && index < uiData.bookmarks.length) {
+                        uiData.bookmarks.splice(index, 1);
+                        await saveData();
+                        renderBookmarks();
+                    }
+                });
+            });
+        }
+        
+        // 渲染历史记录
+        function renderHistory() {
+            if (uiData.history.length === 0) {
+                els.historyList.innerHTML = '<div class="panel-empty">暂无历史记录</div>';
+                return;
+            }
+            els.historyList.innerHTML = uiData.history.slice(0, 50).map(h => `
+                <div class="panel-item" data-url="${h.url}">
+                    <span class="panel-item-icon">🌐</span>
+                    <div class="panel-item-info">
+                        <div class="panel-item-title">${h.title || h.url}</div>
+                        <div class="panel-item-url">${h.url}</div>
+                    </div>
+                    <span class="panel-item-time">${new Date(h.timestamp).toLocaleDateString()}</span>
+                </div>
+            `).join('');
+            
+            els.historyList.querySelectorAll('.panel-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const url = item.getAttribute('data-url');
+                    if (url) window.location.href = url;
+                    hidePanels();
+                });
+            });
+        }
+        
+        // 显示建议
+        function showSuggestions() {
+            const input = els.addressInput.value.toLowerCase();
+            if (!input) {
+                els.suggestions.classList.remove('show');
+                return;
+            }
+            
+            const allUrls = [...uiData.bookmarks.map(b => b.url), ...uiData.history.map(h => h.url)];
+            const unique = Array.from(new Set(allUrls)).filter(url => 
+                url.toLowerCase().includes(input) && url.toLowerCase() !== input
+            ).slice(0, 5);
+            
+            if (unique.length === 0) {
+                els.suggestions.classList.remove('show');
+                return;
+            }
+            
+            els.suggestions.innerHTML = unique.map(url => `
+                <div class="suggestion-item" data-url="${url}">
+                    <span>🌐</span><span>${url}</span>
+                </div>
+            `).join('');
+            els.suggestions.classList.add('show');
+            
+            els.suggestions.querySelectorAll('.suggestion-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const url = item.getAttribute('data-url');
+                    if (url) window.location.href = processUrl(url);
+                    els.suggestions.classList.remove('show');
+                });
+            });
+        }
+        
+        // 事件绑定
+        els.backBtn.addEventListener('click', () => history.back());
+        els.forwardBtn.addEventListener('click', () => history.forward());
+        els.homeBtn.addEventListener('click', () => {
+            window.location.href = window.__BASE_HOST__ || 'tauri://localhost';
         });
         
-        // 前进
-        forwardBtn.addEventListener('click', () => {
-            history.forward();
+        els.goBtn.addEventListener('click', () => {
+            const url = els.addressInput.value.trim();
+            if (url) window.location.href = processUrl(url);
         });
         
-        // 返回主页 - 使用 navigate_to_url 命令
-        homeBtn.addEventListener('click', () => {
-            window.location.href = window.__BASE_HOST__ ?? 'tauri://localhost';
+        els.cancelBtn.addEventListener('click', () => {
+            isInputMode = false;
+            els.addressInput.value = location.href;
+            els.suggestions.classList.remove('show');
+            updateUI();
         });
         
-        // 刷新
-        refreshBtn.addEventListener('click', () => location.reload());
+        els.functionsBtn.addEventListener('click', () => {
+            showSecondary = !showSecondary;
+            updateUI();
+        });
         
-        // 地址栏回车跳转
-        addressInput.addEventListener('keypress', (e) => {
+        els.addressInput.addEventListener('focus', () => {
+            isInputMode = true;
+            updateUI();
+            showSuggestions();
+        });
+        
+        els.addressInput.addEventListener('input', showSuggestions);
+        
+        els.addressInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
-                const url = addressInput.value.trim();
+                const url = els.addressInput.value.trim();
                 if (url) {
-                    window.parent.postMessage({ type: 'BROWSER_NAVIGATE', url }, '*');
+                    window.location.href = processUrl(url);
+                    els.suggestions.classList.remove('show');
                 }
             }
         });
         
-        // GO 按钮跳转
-        goBtn.addEventListener('click', () => {
-            const url = addressInput.value.trim();
-            if (url) {
-                window.parent.postMessage({ type: 'BROWSER_NAVIGATE', url }, '*');
+        els.addressInput.addEventListener('blur', () => {
+            setTimeout(() => {
+                els.suggestions.classList.remove('show');
+            }, 200);
+        });
+        
+        // 功能按钮
+        els.bookmarkAddBtn.addEventListener('click', async () => {
+            const url = location.href;
+            // 先加载最新数据
+            await loadData();
+            if (!uiData.bookmarks.find(b => b.url === url)) {
+                uiData.bookmarks.unshift({ url, title: document.title || url, createdAt: Date.now() });
+                await saveData();
+                showMessage('已添加到收藏');
+            } else {
+                showMessage('已收藏');
             }
         });
         
-        // 安装
-        installBtn.addEventListener('click', () => {
-            window.parent.postMessage({ type: 'BROWSER_INSTALL', url: location.href }, '*');
+        els.bookmarksBtn.addEventListener('click', () => showPanel('bookmarks'));
+        els.historyBtn.addEventListener('click', () => showPanel('history'));
+        
+        els.cookieBtn.addEventListener('click', () => {
+            showMessage('Cookies 会在页面加载时自动同步');
         });
         
-        // 同步 Cookies
-        cookieBtn.addEventListener('click', () => {
-            const cookies = document.cookie;
-            window.parent.postMessage({ 
-                type: 'BROWSER_SYNC_COOKIES', 
-                domain: location.hostname,
-                cookies: cookies 
-            }, '*');
-            // 显示提示
-            const btn = cookieBtn;
-            const originalText = btn.textContent;
-            btn.textContent = '✓';
-            setTimeout(() => { btn.textContent = originalText; }, 1500);
+        els.bookmarksClose.addEventListener('click', hidePanels);
+        els.historyClose.addEventListener('click', hidePanels);
+        els.panelOverlay.addEventListener('click', hidePanels);
+        
+        els.historyClear.addEventListener('click', async () => {
+            uiData.history = [];
+            await saveData();
+            renderHistory();
         });
+        
+        // 显示消息
+        function showMessage(text) {
+            const msg = document.createElement('div');
+            msg.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:white;padding:8px 16px;border-radius:20px;font-size:13px;z-index:2147483649;';
+            msg.textContent = text;
+            shadow.appendChild(msg);
+            setTimeout(() => msg.remove(), 2000);
+        }
         
         // 同步地址栏
-        const syncAddress = () => {
-            if (addressInput !== document.activeElement) {
-                addressInput.value = location.href;
+        setInterval(() => {
+            if (els.addressInput !== document.activeElement) {
+                els.addressInput.value = location.href;
             }
-        };
+        }, 2000);
         
-        // 页面导航时同步地址
-        window.addEventListener('popstate', syncAddress);
-        setInterval(syncAddress, 2000);
+        // 监听 URL 变化
+        let lastUrl = location.href;
+        setInterval(() => {
+            if (location.href !== lastUrl) {
+                lastUrl = location.href;
+                addToHistory(location.href, document.title).catch(() => {});
+                els.addressInput.value = location.href;
+            }
+        }, 500);
+        
+        // 初始更新
+        updateUI();
+        await addToHistory(location.href, document.title);
         
         console.log('[Browser UI] Injected');
+        
+        // 加载数据
+        await loadData();
     }
-    
-    // 拦截所有链接点击，在当前窗口打开
-    document.addEventListener('click', (e) => {
-        const link = e.target.closest('a');
-        if (link && link.href && !link.href.startsWith('javascript:') && !link.href.startsWith('#')) {
-            e.preventDefault();
-            window.location.href = link.href;
-        }
-    }, true);
-    
-    // 拦截 window.open
-    window.open = function(url, target, features) {
-        if (url) {
-            window.location.href = url;
-        }
-        return null;
-    };
     
     // 立即注入
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', injectUI);
+        document.addEventListener('DOMContentLoaded', () => injectUI());
     } else {
         injectUI();
     }
     
-    // 监听 URL 变化（用于 SPA 应用）
+    // 监听 URL 变化
     let lastUrl = location.href;
     setInterval(() => {
         if (location.href !== lastUrl) {
@@ -406,6 +752,8 @@ pub async fn get_webview_info(
 
     Ok(CommandResponse::success(serde_json::json!({
         "windows": windows,
+        "canGoBack": true,
+        "canGoForward": true,
     })))
 }
 

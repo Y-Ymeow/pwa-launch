@@ -9,7 +9,7 @@ use warp::http::Response;
 use warp::hyper::Body;
 use serde::Deserialize;
 
-use crate::commands::{CookieStore, ProxySettings};
+use crate::commands::ProxySettings;
 
 const LOCAL_SERVER_PORT: u16 = 19315;
 
@@ -22,7 +22,6 @@ struct ProxyRequest {
 }
 
 pub async fn start_local_server(
-    _cookie_store: CookieStore,
     _proxy_settings: Arc<RwLock<Option<ProxySettings>>>,
 ) {
     // API 代理路由 - 普通请求，启用 gzip
@@ -172,9 +171,10 @@ pub async fn start_local_server(
     // 静态文件路由 (远程 URL 代理)
     let static_route = warp::path("static")
         .and(warp::path::tail())
-        .and_then(|tail: warp::path::Tail| async move {
+        .and(warp::filters::header::headers_cloned())
+        .and_then(|tail: warp::path::Tail, headers: warp::http::HeaderMap| async move {
             let path = tail.as_str();
-            handle_static_file(path).await
+            handle_static_file(path, headers).await
         });
 
     // 本地文件服务路由 /local/file/<encoded_path>
@@ -286,6 +286,18 @@ async fn handle_proxy_request(
         // 调试日志：输出所有已添加的 PWA headers
         log::info!("[LocalServer] Added PWA headers: {:?}", custom_headers);
     }
+    
+    // 强制使用数据库中的 User-Agent（覆盖 PWA 提供的）
+    if let Some(db_mutex) = crate::DB_CONN.get() {
+        if let Ok(conn) = db_mutex.lock() {
+            if let Ok(user_agent) = crate::db::get_user_agent(&conn) {
+                if !user_agent.is_empty() {
+                    log::info!("[LocalServer] Forcing User-Agent from DB: {}", &user_agent);
+                    request_builder = request_builder.header("User-Agent", user_agent);
+                }
+            }
+        }
+    }
 
     // 添加 body
     if let Some(mut body) = req.body {
@@ -313,6 +325,36 @@ async fn handle_proxy_request(
         request_builder = request_builder.body(body);
     }
 
+    // 自动添加 Cookies（直接查数据库）
+    if let Some(db_mutex) = crate::DB_CONN.get() {
+        if let Ok(conn) = db_mutex.lock() {
+            if let Ok(url) = url::Url::parse(&req.target) {
+                if let Some(domain) = url.host_str() {
+                    // 尝试 "browser" 和 "webview" 两种 app_id
+                    let mut all_cookies = Vec::new();
+                    
+                    if let Ok(cookies) = crate::db::get_cookies_for_domain(&conn, "browser", domain) {
+                        for (k, v) in cookies {
+                            all_cookies.push(format!("{}={}", k, v));
+                        }
+                    }
+                    
+                    if let Ok(cookies) = crate::db::get_cookies_for_domain(&conn, "webview", domain) {
+                        for (k, v) in cookies {
+                            all_cookies.push(format!("{}={}", k, v));
+                        }
+                    }
+                    
+                    if !all_cookies.is_empty() {
+                        let cookie_str = all_cookies.join("; ");
+                        log::info!("[LocalServer] Adding cookies for {}: {}", domain, cookie_str);
+                        request_builder = request_builder.header("Cookie", cookie_str);
+                    }
+                }
+            }
+        }
+    }
+
     // 发送请求
     match request_builder.send().await {
         Ok(response) => {
@@ -331,6 +373,42 @@ async fn handle_proxy_request(
                 "access-control-allow-origin", "access-control-allow-methods",
                 "access-control-allow-headers", "access-control-max-age",
             ].iter().cloned().collect();
+
+            // 保存 Set-Cookie 到数据库
+            if let Ok(url) = url::Url::parse(&req.target) {
+                if let Some(domain) = url.host_str() {
+                    let mut new_cookies: Vec<(String, String)> = Vec::new();
+                    for (hdr_key, hdr_value) in response.headers() {
+                        if hdr_key.as_str().to_lowercase() == "set-cookie" {
+                            if let Ok(cookie_str) = hdr_value.to_str() {
+                                // 解析 Set-Cookie (格式: "name=value; ...")
+                                if let Some(eq_pos) = cookie_str.find('=') {
+                                    let cookie_name = cookie_str[..eq_pos].trim().to_string();
+                                    let value_part = &cookie_str[eq_pos + 1..];
+                                    // 取 value 部分（可能在 ; 之前）
+                                    let cookie_value = value_part.split(';').next().unwrap_or("").trim().to_string();
+                                    if !cookie_name.is_empty() {
+                                        new_cookies.push((cookie_name, cookie_value));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    if !new_cookies.is_empty() {
+                        // 直接保存到数据库
+                        if let Some(db_conn) = crate::DB_CONN.get() {
+                            if let Ok(conn) = db_conn.lock() {
+                                if let Err(e) = crate::db::save_cookies_batch(&conn, "browser", domain, &new_cookies) {
+                                    log::error!("[LocalServer] Cookie save failed: {}", e);
+                                } else {
+                                    log::info!("[LocalServer] Saved {} cookies for {}", new_cookies.len(), domain);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             for (key, value) in response.headers() {
                 let key_lower = key.as_str().to_lowercase();
@@ -365,7 +443,7 @@ async fn handle_proxy_request(
     }
 }
 
-async fn handle_static_file(path: &str) -> Result<impl Reply, Infallible> {
+async fn handle_static_file(path: &str, original_headers: warp::http::HeaderMap) -> Result<impl Reply, Infallible> {
     // URL 解码
     let url = match urlencoding::decode(path) {
         Ok(u) => u.to_string(),
@@ -381,9 +459,64 @@ async fn handle_static_file(path: &str) -> Result<impl Reply, Infallible> {
 
     log::info!("[LocalServer] Static file proxy: {}", url);
 
+    // 透传浏览器的原始 headers
+    let mut headers = reqwest::header::HeaderMap::new();
+    
+    // 复制原始 headers（除了 host 和 connection）
+    for (key, value) in &original_headers {
+        let key_lower = key.as_str().to_lowercase();
+        if key_lower != "host" && key_lower != "connection" && key_lower != "content-length" {
+            if let Ok(name) = reqwest::header::HeaderName::from_bytes(key.as_str().as_bytes()) {
+                if let Ok(val) = reqwest::header::HeaderValue::from_bytes(value.as_bytes()) {
+                    headers.insert(name, val);
+                }
+            }
+        }
+    }
+    
+    // 解析 URL 获取域名
+    let parsed_url = url::Url::parse(&url).ok();
+    let domain_opt = parsed_url.as_ref().and_then(|u| u.host_str());
+    
+    // 从数据库覆盖 User-Agent 并添加 Cookies
+    if let Some(db_mutex) = crate::DB_CONN.get() {
+        if let Ok(conn) = db_mutex.lock() {
+            // 覆盖 User-Agent
+            if let Ok(user_agent) = crate::db::get_user_agent(&conn) {
+                if !user_agent.is_empty() {
+                    headers.insert(reqwest::header::USER_AGENT, user_agent.parse().unwrap());
+                }
+            }
+            
+            // 添加 Cookies
+            if let Some(domain) = domain_opt {
+                let mut all_cookies = Vec::new();
+                
+                if let Ok(cookies) = crate::db::get_cookies_for_domain(&conn, "browser", domain) {
+                    for (k, v) in cookies {
+                        all_cookies.push(format!("{}={}", k, v));
+                    }
+                }
+                
+                if let Ok(cookies) = crate::db::get_cookies_for_domain(&conn, "webview", domain) {
+                    for (k, v) in cookies {
+                        all_cookies.push(format!("{}={}", k, v));
+                    }
+                }
+                
+                if !all_cookies.is_empty() {
+                    let cookie_str = all_cookies.join("; ");
+                    log::info!("[LocalServer] Adding cookies for {}: {}", domain, cookie_str);
+                    headers.insert(reqwest::header::COOKIE, cookie_str.parse().unwrap());
+                }
+            }
+        }
+    }
+
     // 自动处理压缩
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
+        .default_headers(headers)
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -391,11 +524,11 @@ async fn handle_static_file(path: &str) -> Result<impl Reply, Infallible> {
         Ok(response) => {
             let status = response.status().as_u16();
 
-            // 复制响应头（除了 hop-by-hop 和 CORS 头）
+            // 复制响应头（除了 hop-by-hop、CORS 和 CORP 头）
             let mut response_builder = Response::builder().status(status);
             let hop_by_hop = ["connection", "keep-alive", "transfer-encoding", "upgrade",
                 "access-control-allow-origin", "access-control-allow-methods",
-                "access-control-allow-headers"];
+                "access-control-allow-headers", "cross-origin-resource-policy"];
 
             for (key, value) in response.headers() {
                 let key_lower = key.as_str().to_lowercase();
@@ -406,9 +539,10 @@ async fn handle_static_file(path: &str) -> Result<impl Reply, Infallible> {
                 }
             }
 
-            // 强制添加 CORS 头
+            // 强制添加 CORS 和 CORP 头，允许跨域访问
             response_builder = response_builder
                 .header("Access-Control-Allow-Origin", "*")
+                .header("Cross-Origin-Resource-Policy", "cross-origin")
                 .header("Cache-Control", "public, max-age=3600");
 
             // 流式传输 body
@@ -526,6 +660,7 @@ async fn handle_local_file(
                                         .header("Content-Range", format!("bytes {}-{}/{}", start, end, file_size))
                                         .header("Accept-Ranges", "bytes")
                                         .header("Access-Control-Allow-Origin", "*")
+                                        .header("Cross-Origin-Resource-Policy", "cross-origin")
                                         .body(Body::from(buffer))
                                         .unwrap();
                                     return Ok(response);
@@ -550,6 +685,7 @@ async fn handle_local_file(
                 .header("Content-Length", data.len())
                 .header("Accept-Ranges", "bytes")
                 .header("Access-Control-Allow-Origin", "*")
+                .header("Cross-Origin-Resource-Policy", "cross-origin")
                 .body(Body::from(data))
                 .unwrap();
             Ok(response)

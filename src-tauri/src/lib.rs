@@ -4,13 +4,15 @@ pub mod models;
 pub mod utils;
 pub mod local_server;
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_fs::init as fs_plugin;
 use tauri_plugin_http::init as http_plugin;
 use tauri_plugin_shell::init as shell_plugin;
 use tokio::sync::RwLock;
+
+// 全局数据库连接，用于在协议处理器中访问
+pub static DB_CONN: OnceLock<Mutex<rusqlite::Connection>> = OnceLock::new();
 
 pub fn run() {
     #[cfg(target_os = "linux")]
@@ -68,6 +70,87 @@ pub fn run() {
                 .body(ADAPT_JS.as_bytes().to_vec())
                 .expect("Failed to build response")
         })
+        .register_uri_scheme_protocol("appdata", |_app, request| {
+            use serde::{Deserialize, Serialize};
+
+            #[derive(Deserialize, Serialize)]
+            struct DataRequest {
+                action: String,
+                app_id: Option<String>,
+                key: Option<String>,
+                value: Option<String>,
+                domain: Option<String>,
+                cookies: Option<String>,
+            }
+
+            let body = request.body();
+            let response = match serde_json::from_slice::<DataRequest>(body) {
+                Ok(req) => {
+                    // 使用全局 DB_CONN
+                    match DB_CONN.get() {
+                        Some(db_mutex) => {
+                            let conn = db_mutex.lock().unwrap();
+                            match req.action.as_str() {
+                                "set" => {
+                                    if let (Some(app_id), Some(key), Some(val)) = (req.app_id, req.key, req.value) {
+                                        match conn.execute(
+                                            "INSERT OR REPLACE INTO kv_store (app_id, key, value) VALUES (?1, ?2, ?3)",
+                                            rusqlite::params![app_id, key, val],
+                                        ) {
+                                            Ok(_) => serde_json::json!({ "success": true, "action": "set" }),
+                                            Err(e) => serde_json::json!({ "success": false, "error": format!("DB write error: {}", e) }),
+                                        }
+                                    } else {
+                                        serde_json::json!({ "success": false, "error": "Missing parameters" })
+                                    }
+                                }
+                                "get" => {
+                                    if let (Some(app_id), Some(key)) = (req.app_id, req.key) {
+                                        let result: Result<String, rusqlite::Error> = conn.query_row(
+                                            "SELECT value FROM kv_store WHERE app_id = ?1 AND key = ?2",
+                                            rusqlite::params![app_id, key],
+                                            |row| row.get(0),
+                                        );
+                                        match result {
+                                            Ok(val) => serde_json::json!({ "success": true, "action": "get", "data": val }),
+                                            Err(_) => serde_json::json!({ "success": false, "action": "get", "data": null }),
+                                        }
+                                    } else {
+                                        serde_json::json!({ "success": false, "error": "Missing parameters" })
+                                    }
+                                }
+                                "cookie" => {
+                                    // 直接保存 cookies 到数据库（使用外层的 conn）
+                                    if let (Some(domain), Some(cookies)) = (req.domain, req.cookies) {
+                                        match db::parse_and_save_cookie_string(&conn, "browser", &domain, &cookies) {
+                                            Ok(_) => {
+                                                log::debug!("[appdata] Cookies saved to DB for {}", domain);
+                                                serde_json::json!({ "success": true, "action": "cookie" })
+                                            }
+                                            Err(e) => {
+                                                log::error!("[appdata] Cookie save failed: {}", e);
+                                                serde_json::json!({ "success": false, "error": format!("Cookie save error: {}", e) })
+                                            }
+                                        }
+                                    } else {
+                                        serde_json::json!({ "success": false, "error": "Missing domain or cookies" })
+                                    }
+                                }
+                                _ => serde_json::json!({ "success": false, "error": "Unknown action" }),
+                            }
+                        }
+                        None => serde_json::json!({ "success": false, "error": "DB not initialized" }),
+                    }
+                }
+                Err(e) => serde_json::json!({ "success": false, "error": format!("Parse error: {}", e) }),
+            };
+
+            http::Response::builder()
+                .header("Content-Type", "application/json")
+                .header("Access-Control-Allow-Origin", "*")
+                .body(response.to_string().into_bytes())
+                .expect("Failed to build response")
+        })
         .setup(move |app| {
             // 启动本地服务器（必须在 tokio 运行时中执行）
             tauri::async_runtime::block_on(async move {
@@ -76,24 +159,16 @@ pub fn run() {
                 db::init_db(&app_data_dir)?;
 
                 let db_path = app_data_dir.join("pwa_container.db");
-                let conn = rusqlite::Connection::open(&db_path)?;
-                app.manage(std::sync::Mutex::new(conn));
 
-                // 初始化全局状态
-                let cookie_store = Arc::new(RwLock::new(HashMap::<
-                    String,
-                    HashMap<String, HashMap<String, String>>,
-                >::new()));
-                app.manage(cookie_store.clone());
+                // 只使用一个数据库连接，避免死锁
+                let conn = rusqlite::Connection::open(&db_path)?;
+                let _ = DB_CONN.set(Mutex::new(conn));
 
                 let proxy_settings = Arc::new(RwLock::new(None::<commands::ProxySettings>));
                 app.manage(proxy_settings.clone());
 
                 // 启动本地 HTTP 服务器（Linux/Windows/macOS）
-                // #[cfg(not(target_os = "android"))]
-                // {
-                    local_server::start_local_server(cookie_store, proxy_settings).await;
-                // }
+                local_server::start_local_server(proxy_settings).await;
 
                 // 创建主窗口
                 // dev 模式使用 Vite 端口（有热重载）
@@ -103,8 +178,20 @@ pub fn run() {
                 #[cfg(not(dev))]
                 let url = WebviewUrl::App(std::path::PathBuf::from("/"));
 
+                // 从数据库读取 User-Agent
+                let user_agent = if let Some(db_mutex) = DB_CONN.get() {
+                    if let Ok(conn) = db_mutex.lock() {
+                        crate::db::get_user_agent(&conn).unwrap_or_default()
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                };
+
                 let window = WebviewWindowBuilder::new(app, "main", url)
                     .devtools(true)
+                    .user_agent(&user_agent)
                     .build()?;
 
                 // 设置窗口大小（仅在非 Android 平台）
@@ -127,6 +214,77 @@ pub fn run() {
             if let Some(url) = &*host {
                 let _ = window.eval(&format!("window.__BASE_HOST__ = {:?};", url));
             }
+
+            let url = payload.url().to_string();
+            log::info!("Page loaded: {}", url);
+
+            // 如果不是本地前端页面，注入浏览器 UI
+            let is_local = url.contains("localhost") || url.contains("127.0.0.1") || url.starts_with("tauri://") || url.starts_with("http://localhost");
+            if !is_local && !url.starts_with("about:blank") {
+                log::info!("[Browser UI] Injecting to external page: {}", url);
+                let _ = window.eval(commands::INJECT_BROWSER_UI);
+                
+                // 自动获取 cookies（包括 HttpOnly）并保存到数据库
+                let window_clone = window.clone();
+                std::thread::spawn(move || {
+                    // 解析当前域名
+                    let domain = if let Ok(parsed_url) = url::Url::parse(&url) {
+                        parsed_url.host_str().map(|s| s.to_string())
+                    } else {
+                        None
+                    };
+                    
+                    if let Some(domain) = domain {
+                        match window_clone.cookies() {
+                            Ok(cookies) => {
+                                // 只过滤出当前域名的 cookies
+                                let domain_cookies: Vec<_> = cookies.iter()
+                                    .filter(|c| {
+                                        // 检查 cookie 的 domain 是否匹配当前域名
+                                        let cookie_domain = c.domain().unwrap_or("");
+                                        cookie_domain == domain || 
+                                        cookie_domain == format!(". {}", domain).trim_start() ||
+                                        domain.ends_with(cookie_domain.strip_prefix('.').unwrap_or(cookie_domain))
+                                    })
+                                    .collect();
+                                
+                                if !domain_cookies.is_empty() {
+                                    let cookie_str = domain_cookies.iter()
+                                        .map(|c| format!("{}={}", c.name(), c.value()))
+                                        .collect::<Vec<_>>()
+                                        .join("; ");
+                                    
+                                    log::info!("[Auto Cookie] Got {} cookies for {}", domain_cookies.len(), domain);
+                                    
+                                    // 保存到数据库
+                                    if let Some(db_mutex) = DB_CONN.get() {
+                                        if let Ok(conn) = db_mutex.lock() {
+                                            // 先清除该域名的旧 cookies
+                                            if let Err(e) = conn.execute(
+                                                "DELETE FROM cookies WHERE app_id = ?1 AND domain = ?2",
+                                                rusqlite::params!["browser", &domain]
+                                            ) {
+                                                log::error!("[Auto Cookie] Failed to clear old cookies: {}", e);
+                                            }
+                                            // 保存新 cookies
+                                            if let Err(e) = db::parse_and_save_cookie_string(&conn, "browser", &domain, &cookie_str) {
+                                                log::error!("[Auto Cookie] Failed to save: {}", e);
+                                            } else {
+                                                log::info!("[Auto Cookie] Saved {} cookies for {}", domain_cookies.len(), domain);
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    log::debug!("[Auto Cookie] No cookies for domain: {}", domain);
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("[Auto Cookie] Failed to get cookies: {}", e);
+                            }
+                        }
+                    }
+                });
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::install_pwa,
@@ -144,6 +302,7 @@ pub fn run() {
             commands::get_cookies,
             commands::set_cookies,
             commands::clear_cookies,
+            commands::get_cookie_domains,
             commands::get_all_cookies,
             commands::set_proxy,
             commands::get_proxy,
@@ -176,6 +335,8 @@ pub fn run() {
             commands::reinject_browser_ui,
             commands::check_browser_ui,
             commands::eval_js,
+            commands::get_app_config,
+            commands::set_app_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

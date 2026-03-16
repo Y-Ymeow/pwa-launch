@@ -46,4 +46,11 @@ export interface BrowserHistoryItem {
   timestamp: number;
 }
 
+export interface BrowserBookmarkItem {
+  url: string;
+  title: string;
+  favicon?: string;
+  createdAt: number;
+}
+
 export type ViewMode = 'apps' | 'browser' | 'pwa';

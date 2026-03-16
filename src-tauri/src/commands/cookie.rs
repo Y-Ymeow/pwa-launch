@@ -1,87 +1,163 @@
 use std::collections::HashMap;
 use tauri::State;
 
-use super::{extract_domain, CommandResponse, CookieStore, ProxyConfig, ProxySettings};
+use super::{extract_domain, CommandResponse, ProxyConfig, ProxySettings};
 
-/// 读取 Cookie - 按 app_id 隔离
+/// 读取 Cookie - 直接查数据库
 #[tauri::command]
 pub async fn get_cookies(
     url: String,
     app_id: String,
-    cookie_store: State<'_, CookieStore>,
 ) -> Result<CommandResponse<Vec<String>>, String> {
     let domain = extract_domain(&url);
-    let cookies = cookie_store.read().await;
-    let result = cookies
-        .get(&app_id)
-        .and_then(|app_cookies| app_cookies.get(&domain))
-        .map(|c| c.iter().map(|(k, v)| format!("{}={}", k, v)).collect())
-        .unwrap_or_default();
-    Ok(CommandResponse::success(result))
+    
+    // 使用全局 DB_CONN
+    let conn = if let Some(db_mutex) = crate::DB_CONN.get() {
+        db_mutex.lock().map_err(|e| e.to_string())?
+    } else {
+        return Err("DB not initialized".to_string());
+    };
+    
+    match crate::db::get_cookies_for_domain(&conn, &app_id, &domain) {
+        Ok(cookies) => {
+            let result: Vec<String> = cookies.iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect();
+            Ok(CommandResponse::success(result))
+        }
+        Err(e) => {
+            log::error!("[Cookies] Failed to get from DB: {}", e);
+            Ok(CommandResponse::success(vec![]))
+        }
+    }
 }
 
-/// 设置 Cookie - 按 app_id 隔离
+/// 设置 Cookie - 直接保存到数据库
 #[tauri::command]
 pub async fn set_cookies(
     url: String,
     app_id: String,
     cookies: Vec<String>,
-    cookie_store: State<'_, CookieStore>,
 ) -> Result<CommandResponse<bool>, String> {
     let domain = extract_domain(&url);
-    let mut store = cookie_store.write().await;
-    let app_cookies = store.entry(app_id.clone()).or_insert_with(HashMap::new);
-    let domain_cookies = app_cookies
-        .entry(domain.clone())
-        .or_insert_with(HashMap::new);
-
+    
+    // 使用全局 DB_CONN
+    let conn = if let Some(db_mutex) = crate::DB_CONN.get() {
+        db_mutex.lock().map_err(|e| e.to_string())?
+    } else {
+        return Err("DB not initialized".to_string());
+    };
+    
     for cookie in cookies {
         if let Some(eq_pos) = cookie.find('=') {
             let key = cookie[..eq_pos].trim().to_string();
             let value = cookie[eq_pos + 1..].trim().to_string();
             if !key.is_empty() && !value.is_empty() {
-                domain_cookies.insert(key, value);
+                if let Err(e) = crate::db::save_cookie(&conn, &app_id, &domain, &key, &value) {
+                    log::error!("[Cookies] Failed to save cookie: {}", e);
+                }
             }
         }
     }
 
-    log::info!(
-        "设置 Cookie (app: {}): {} {:?}",
-        app_id,
-        domain,
-        domain_cookies
-    );
+    log::info!("[Cookies] Set cookies for app: {}, domain: {}", app_id, domain);
     Ok(CommandResponse::success(true))
 }
 
-/// 清除指定 app 的 Cookie
+/// 清除指定 app 的 Cookie（直接从数据库删除）
 #[tauri::command]
 pub async fn clear_cookies(
     app_id: String,
     domain: Option<String>,
-    cookie_store: State<'_, CookieStore>,
+    include_subdomains: Option<bool>,
 ) -> Result<CommandResponse<bool>, String> {
-    let mut store = cookie_store.write().await;
+    // 使用全局 DB_CONN
+    let conn = if let Some(db_mutex) = crate::DB_CONN.get() {
+        db_mutex.lock().map_err(|e| e.to_string())?
+    } else {
+        return Err("DB not initialized".to_string());
+    };
+
     if let Some(d) = domain {
-        if let Some(app_cookies) = store.get_mut(&app_id) {
-            app_cookies.remove(&d);
+        let include_subs = include_subdomains.unwrap_or(true);
+        if include_subs {
+            // 清除该域名及其子域
+            // 例如 domain=manhwa-raw.com 会清除:
+            // - manhwa-raw.com
+            // - www.manhwa-raw.com
+            // - xxx.manhwa-raw.com
+            let like_pattern = format!("%.{}", d);
+            conn.execute(
+                "DELETE FROM cookies WHERE app_id = ?1 AND (domain = ?2 OR domain LIKE ?3)",
+                rusqlite::params![app_id, d, like_pattern],
+            ).map_err(|e| e.to_string())?;
+            log::info!("清除 Cookie (app: {}, domain: {} 及子域)", app_id, d);
+        } else {
+            conn.execute(
+                "DELETE FROM cookies WHERE app_id = ?1 AND domain = ?2",
+                rusqlite::params![app_id, d],
+            ).map_err(|e| e.to_string())?;
             log::info!("清除 Cookie (app: {}, domain: {})", app_id, d);
         }
     } else {
-        store.remove(&app_id);
+        conn.execute(
+            "DELETE FROM cookies WHERE app_id = ?1",
+            rusqlite::params![app_id],
+        ).map_err(|e| e.to_string())?;
         log::info!("清除所有 Cookie (app: {})", app_id);
     }
     Ok(CommandResponse::success(true))
 }
 
-/// 获取指定 app 的所有 Cookie
+/// 获取所有有 cookies 的域名列表
+#[tauri::command]
+pub async fn get_cookie_domains() -> Result<CommandResponse<Vec<String>>, String> {
+    let conn = if let Some(db_mutex) = crate::DB_CONN.get() {
+        db_mutex.lock().map_err(|e| e.to_string())?
+    } else {
+        return Err("DB not initialized".to_string());
+    };
+    
+    match crate::db::get_cookie_domains(&conn) {
+        Ok(domains) => {
+            log::info!("[Cookies] Found {} domains", domains.len());
+            Ok(CommandResponse::success(domains))
+        }
+        Err(e) => Err(format!("查询失败: {}", e)),
+    }
+}
+
+/// 获取指定 app 的所有 Cookie（直接从数据库查询）
 #[tauri::command]
 pub async fn get_all_cookies(
     app_id: String,
-    cookie_store: State<'_, CookieStore>,
 ) -> Result<CommandResponse<HashMap<String, HashMap<String, String>>>, String> {
-    let cookies = cookie_store.read().await;
-    let result = cookies.get(&app_id).map(|c| c.clone()).unwrap_or_default();
+    // 使用全局 DB_CONN
+    let conn = if let Some(db_mutex) = crate::DB_CONN.get() {
+        db_mutex.lock().map_err(|e| e.to_string())?
+    } else {
+        return Err("DB not initialized".to_string());
+    };
+    
+    let mut result: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut stmt = conn.prepare(
+        "SELECT domain, name, value FROM cookies WHERE app_id = ?1"
+    ).map_err(|e| e.to_string())?;
+    
+    let rows = stmt.query_map(rusqlite::params![app_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    }).map_err(|e| e.to_string())?;
+    
+    for row in rows {
+        let (domain, name, value) = row.map_err(|e| e.to_string())?;
+        let domain_cookies = result.entry(domain).or_insert_with(HashMap::new);
+        domain_cookies.insert(name, value);
+    }
+    
     Ok(CommandResponse::success(result))
 }
 
@@ -146,50 +222,43 @@ pub async fn disable_proxy(
     Ok(CommandResponse::success(true))
 }
 
-/// 从指定 WebView 获取 Cookies
+/// 从指定 WebView 获取 Cookies（包括 HttpOnly）
 #[tauri::command]
-pub async fn get_webview_cookies(
+pub fn get_webview_cookies(
     window: tauri::WebviewWindow,
-    url: Option<String>,
 ) -> Result<CommandResponse<String>, String> {
-    // 执行 JS 获取 document.cookie
-    let script = r#"
-        (function() {
-            return document.cookie || '';
-        })()
-    "#;
-
-    // 注意：Tauri 2.0 的 eval 返回 ()，需要通过其他方式获取返回值
-    // 这里使用一个变通方案：设置一个全局变量，然后通过返回值获取
-    window
-        .eval(script)
-        .map_err(|e| format!("执行 JS 失败: {:?}", e))?;
-
-    // 由于 Tauri 2.0 eval 不返回 JS 执行结果，
-    // 我们需要使用 event 或命令回调来获取结果
-    // 简化处理：返回空，实际通过 sync_webview_cookies 来同步
-    Ok(CommandResponse::success(String::new()))
+    // 使用 WebView 的 cookies() API 获取所有 cookies（包括 HttpOnly）
+    let cookies = window.cookies()
+        .map_err(|e| format!("获取 cookies 失败: {:?}", e))?;
+    
+    // 将 cookies 转换为字符串格式
+    let cookie_str = cookies.iter()
+        .map(|c| format!("{}={}", c.name(), c.value()))
+        .collect::<Vec<_>>()
+        .join("; ");
+    
+    log::info!("从 WebView 获取到 {} 个 cookies", cookies.len());
+    Ok(CommandResponse::success(cookie_str))
 }
 
-/// 从 WebView 同步 Cookies（验证助手使用）
+/// 从 WebView 同步 Cookies（直接保存到数据库）
 #[tauri::command]
 pub async fn sync_webview_cookies(
     domain: String,
     cookies: String,
     user_agent: Option<String>,
-    cookie_store: State<'_, CookieStore>,
 ) -> Result<CommandResponse<bool>, String> {
     log::info!("同步 WebView Cookies for domain: {}", domain);
     log::info!("User-Agent: {:?}", user_agent);
 
-    let mut store = cookie_store.write().await;
-    // 使用 "webview" 作为特殊的 app_id 来存储验证后的 cookies
-    let app_cookies = store
-        .entry("webview".to_string())
-        .or_insert_with(HashMap::new);
-    let domain_cookies = app_cookies
-        .entry(domain.clone())
-        .or_insert_with(HashMap::new);
+    // 使用全局 DB_CONN
+    let conn = if let Some(db_mutex) = crate::DB_CONN.get() {
+        db_mutex.lock().map_err(|e| e.to_string())?
+    } else {
+        return Err("DB not initialized".to_string());
+    };
+    
+    let mut count = 0;
 
     // 解析 cookies 字符串 (格式: "key1=value1; key2=value2")
     for cookie in cookies.split(';') {
@@ -198,15 +267,16 @@ pub async fn sync_webview_cookies(
             let key = cookie[..eq_pos].trim().to_string();
             let value = cookie[eq_pos + 1..].trim().to_string();
             if !key.is_empty() {
-                domain_cookies.insert(key, value);
+                if let Err(e) = crate::db::save_cookie(&conn, "webview", &domain, &key, &value) {
+                    log::error!("[Cookies] Failed to save: {}", e);
+                } else {
+                    count += 1;
+                }
             }
         }
     }
 
-    log::info!(
-        "WebView Cookies 同步完成: {} 个 cookies",
-        domain_cookies.len()
-    );
+    log::info!("WebView Cookies 同步完成: {} 个 cookies", count);
     Ok(CommandResponse::success(true))
 }
 
