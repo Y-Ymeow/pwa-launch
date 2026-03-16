@@ -53,9 +53,11 @@ export function AppSettings({ show, onClose, showMessage }: AppSettingsProps) {
       if (uaResult.success && uaResult.data) {
         setUserAgent(uaResult.data);
       }
-      const screenResult = await invoke<{ success: boolean; data: boolean | null }>("get_app_config", { key: "keep_screen_on" });
+      const screenResult = await invoke<{ success: boolean; data: boolean | string | null }>("get_app_config", { key: "keep_screen_on" });
       if (screenResult.success && screenResult.data !== null) {
-        setKeepScreenOn(screenResult.data);
+        // 处理字符串或布尔值
+        const val = screenResult.data;
+        setKeepScreenOn(typeof val === 'boolean' ? val : val === 'true');
       }
     } catch (error) {
       console.error("Failed to load settings:", error);

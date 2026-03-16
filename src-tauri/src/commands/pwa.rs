@@ -461,29 +461,43 @@ fn save_app_to_db(conn: &Connection, app: &AppInfo) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// 获取配置项
+/// 获取配置项（支持任意类型，自动解析 JSON）
 #[tauri::command]
-pub fn get_app_config(key: String) -> Result<CommandResponse<Option<String>>, String> {
+pub fn get_app_config(key: String) -> Result<CommandResponse<serde_json::Value>, String> {
     let conn = crate::DB_CONN.get()
         .ok_or("DB not initialized")?
         .lock()
         .map_err(|e| e.to_string())?;
     
     match crate::db::get_config(&conn, &key) {
-        Ok(value) => Ok(CommandResponse::success(value)),
+        Ok(Some(value)) => {
+            // 尝试解析为 JSON，失败则返回字符串
+            let json_val = serde_json::from_str(&value)
+                .unwrap_or_else(|_| serde_json::Value::String(value));
+            Ok(CommandResponse::success(json_val))
+        }
+        Ok(None) => Ok(CommandResponse::success(serde_json::Value::Null)),
         Err(e) => Err(format!("Failed to get config: {}", e)),
     }
 }
 
-/// 设置配置项
+/// 设置配置项（支持任意类型，自动转为 JSON 字符串）
 #[tauri::command]
-pub fn set_app_config(key: String, value: String) -> Result<CommandResponse<bool>, String> {
+pub fn set_app_config(key: String, value: serde_json::Value) -> Result<CommandResponse<bool>, String> {
     let conn = crate::DB_CONN.get()
         .ok_or("DB not initialized")?
         .lock()
         .map_err(|e| e.to_string())?;
     
-    match crate::db::set_config(&conn, &key, &value) {
+    // 将值转为字符串存储
+    let value_str = match value {
+        serde_json::Value::String(s) => s,
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        v => v.to_string(),
+    };
+    
+    match crate::db::set_config(&conn, &key, &value_str) {
         Ok(_) => Ok(CommandResponse::success(true)),
         Err(e) => Err(format!("Failed to set config: {}", e)),
     }
