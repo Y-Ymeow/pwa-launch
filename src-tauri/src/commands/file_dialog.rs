@@ -69,27 +69,10 @@ pub async fn open_file_dialog(
                 file_paths
                     .into_iter()
                     .filter_map(|fp| {
-                        // Android 上使用 URL (content://)，桌面端使用路径
-                        #[cfg(target_os = "android")]
-                        {
-                            let url = fp.url().to_string();
-                            log::info!("  - URL: {}", url);
-                            Some(url)
-                        }
-                        #[cfg(not(target_os = "android"))]
-                        {
-                            match fp.into_path() {
-                                Ok(path) => {
-                                    let path_str = path.to_string_lossy().to_string();
-                                    log::info!("  - Path: {}", path_str);
-                                    Some(path_str)
-                                }
-                                Err(e) => {
-                                    log::error!("Failed to convert FilePath to PathBuf: {:?}", e);
-                                    None
-                                }
-                            }
-                        }
+                        // 直接转换为字符串 (Android 返回 content:// URI，桌面返回路径)
+                        let path_str = fp.to_string();
+                        log::info!("  - Path: {}", path_str);
+                        Some(path_str)
                     })
                     .collect()
             }
@@ -101,26 +84,9 @@ pub async fn open_file_dialog(
     } else {
         match dialog.blocking_pick_file() {
             Some(file_path) => {
-                #[cfg(target_os = "android")]
-                {
-                    let url = file_path.url().to_string();
-                    log::info!("Selected file URL: {}", url);
-                    vec![url]
-                }
-                #[cfg(not(target_os = "android"))]
-                {
-                    match file_path.into_path() {
-                        Ok(path) => {
-                            let path_str = path.to_string_lossy().to_string();
-                            log::info!("Selected file: {}", path_str);
-                            vec![path_str]
-                        }
-                        Err(e) => {
-                            log::error!("Failed to convert FilePath to PathBuf: {:?}", e);
-                            vec![]
-                        }
-                    }
-                }
+                let path_str = file_path.to_string();
+                log::info!("Selected file: {}", path_str);
+                vec![path_str]
             }
             None => {
                 log::info!("No file selected");
@@ -148,8 +114,11 @@ pub async fn read_file_content(
         if path.starts_with("content://") {
             use tauri_plugin_fs::FsExt;
             let fs_ext = app.fs();
+            // 将 content:// URI 转换为 tauri::Url，再转为 FilePath
+            let url = tauri::Url::parse(&path)
+                .map_err(|e| format!("无效的 URI: {}", e))?;
             content = fs_ext
-                .read(path.clone())
+                .read(url)
                 .map_err(|e| format!("读取文件失败：{}", e))?;
             
             // 从 URL 提取文件名
@@ -256,8 +225,10 @@ pub async fn read_file_range(
         if path.starts_with("content://") {
             use tauri_plugin_fs::FsExt;
             let fs_ext = app.fs();
+            let url = tauri::Url::parse(&path)
+                .map_err(|e| format!("无效的 URI: {}", e))?;
             let full_content = fs_ext
-                .read(path.clone())
+                .read(url)
                 .map_err(|e| format!("读取文件失败：{}", e))?;
 
             let file_size = full_content.len() as u64;
