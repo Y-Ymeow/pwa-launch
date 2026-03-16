@@ -72,6 +72,19 @@ pub async fn open_file_dialog(
                         // 直接转换为字符串 (Android 返回 content:// URI，桌面返回路径)
                         let path_str = fp.to_string();
                         log::info!("  - Path: {}", path_str);
+                        // Android: 将 content:// URI 复制到应用私有目录
+                        #[cfg(target_os = "android")]
+                        let path_str = if path_str.starts_with("content://") {
+                            match copy_content_uri_to_cache(&app, &path_str) {
+                                Ok(cache_path) => cache_path,
+                                Err(e) => {
+                                    log::error!("Failed to copy content URI: {}", e);
+                                    path_str
+                                }
+                            }
+                        } else {
+                            path_str
+                        };
                         Some(path_str)
                     })
                     .collect()
@@ -86,6 +99,19 @@ pub async fn open_file_dialog(
             Some(file_path) => {
                 let path_str = file_path.to_string();
                 log::info!("Selected file: {}", path_str);
+                // Android: 将 content:// URI 复制到应用私有目录
+                #[cfg(target_os = "android")]
+                let path_str = if path_str.starts_with("content://") {
+                    match copy_content_uri_to_cache(&app, &path_str) {
+                        Ok(cache_path) => cache_path,
+                        Err(e) => {
+                            log::error!("Failed to copy content URI: {}", e);
+                            path_str
+                        }
+                    }
+                } else {
+                    path_str
+                };
                 vec![path_str]
             }
             None => {
@@ -97,6 +123,46 @@ pub async fn open_file_dialog(
 
     log::info!("Returning {} paths", paths.len());
     Ok(CommandResponse::success(OpenDialogResponse { paths }))
+}
+
+/// Android: 将 content:// URI 复制到应用私有目录
+#[cfg(target_os = "android")]
+fn copy_content_uri_to_cache(app: &tauri::AppHandle, uri_str: &str) -> Result<String, String> {
+    use tauri_plugin_fs::FsExt;
+    use std::io::Write;
+    
+    log::info!("Copying content URI to cache: {}", uri_str);
+    
+    // 解析文件名
+    let file_name = uri_str
+        .split('/')
+        .last()
+        .unwrap_or("unknown_file")
+        .split(':')
+        .last()
+        .unwrap_or("unknown_file");
+    
+    // 读取 content URI 内容
+    let fs_ext = app.fs();
+    let url = tauri::Url::parse(uri_str)
+        .map_err(|e| format!("无效的 URI: {}", e))?;
+    let content = fs_ext
+        .read(url)
+        .map_err(|e| format!("读取 content URI 失败: {}", e))?;
+    
+    // 写入应用缓存目录
+    let cache_dir = app.path()
+        .cache_dir()
+        .map_err(|e| format!("获取缓存目录失败: {}", e))?;
+    let target_path = cache_dir.join(file_name);
+    
+    std::fs::write(&target_path, &content)
+        .map_err(|e| format!("写入缓存文件失败: {}", e))?;
+    
+    let result_path = target_path.to_string_lossy().to_string();
+    log::info!("Content URI copied to: {}", result_path);
+    
+    Ok(result_path)
 }
 
 #[tauri::command]
