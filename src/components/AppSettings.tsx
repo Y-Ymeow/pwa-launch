@@ -7,8 +7,6 @@ interface AppSettingsProps {
   showMessage: (type: "success" | "error", text: string) => void;
 }
 
-const DEFAULT_USER_AGENT = "Mozilla/5.0 (Linux; Android 13; TECNO BG6 Build/TP1A.220624.014) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.7632.159 Mobile Safari/537.36";
-
 const PRESET_USER_AGENTS = [
   {
     name: "使用系统默认 (推荐)",
@@ -16,7 +14,7 @@ const PRESET_USER_AGENTS = [
   },
   {
     name: "Android Chrome",
-    value: DEFAULT_USER_AGENT,
+    value: "Mozilla/5.0 (Linux; Android 13; TECNO BG6 Build/TP1A.220624.014) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.7632.159 Mobile Safari/537.36",
   },
   {
     name: "iPhone Safari",
@@ -34,9 +32,9 @@ const PRESET_USER_AGENTS = [
 
 export function AppSettings({ show, onClose, showMessage }: AppSettingsProps) {
   const [activeTab, setActiveTab] = useState<"general" | "network">("general");
-  
-  // User-Agent 设置
-  const [userAgent, setUserAgent] = useState(DEFAULT_USER_AGENT);
+
+  // User-Agent 设置（默认为空，使用系统默认）
+  const [userAgent, setUserAgent] = useState("");
   // 屏幕常亮设置
   const [keepScreenOn, setKeepScreenOn] = useState(false);
   const [loading, setLoading] = useState(false);

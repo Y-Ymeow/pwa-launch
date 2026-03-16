@@ -13,7 +13,7 @@
     "windows": [],
     "security": {
       "csp": {
-        "default-src": "* http://* https://*",
+        "default-src": "* http://* https://* data://*",
         "standard-src": "*",
         "script-src": "*",
         "style-src": "*",

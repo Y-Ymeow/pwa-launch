@@ -17,13 +17,23 @@ pub const INJECT_BROWSER_UI: &str = r#"
     let dataLoaded = false;
     
     // 使用 appdata:// 协议访问全局数据（Android 需要用 http://appdata.localhost）
-    const DATA_API_URL = navigator.userAgent.includes('Android')
-        ? 'http://appdata.localhost'
-        : 'appdata://localhost';
+    // 由于 User-Agent 可能被修改，在 loadData 中动态检测
+    let DATA_API_URL = 'appdata://localhost';
     
     // 从 KV 加载数据（使用与 App.tsx 相同的 key）
     async function loadData() {
         try {
+            // 检测正确的 API URL
+            try {
+                await fetch('appdata://localhost', {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'get', app_id: 'browser', key: 'test' })
+                });
+                DATA_API_URL = 'appdata://localhost';
+            } catch (e) {
+                DATA_API_URL = 'http://appdata.localhost';
+            }
+
             // 加载书签
             const bookmarksRes = await fetch(DATA_API_URL, {
                 method: 'POST',
@@ -448,8 +458,8 @@ pub const INJECT_BROWSER_UI: &str = r#"
             if (isBarVisible) {
                 els.bar.classList.remove('hidden');
                 els.floatBtn.style.display = 'none';
-                document.documentElement.style.paddingTop = barPosition === 'top' ? '${isMobile() ? '48px' : '52px'}' : '0';
-                document.documentElement.style.paddingBottom = barPosition === 'bottom' ? '${isMobile() ? '48px' : '52px'}' : '0';
+                // document.documentElement.style.paddingTop = barPosition === 'top' ? (isMobile() ? 48 : 52) : 0;
+                // document.documentElement.style.paddingBottom = barPosition === 'bottom' ? (isMobile() ? 48 : 52) : 0;
                 
                 if (barPosition === 'bottom') {
                     els.bar.classList.add('position-bottom');
@@ -772,6 +782,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
         document.addEventListener('DOMContentLoaded', () => injectUI());
     } else {
         injectUI();
+        console.log("[Browser UI] Injected");
     }
     
     // 监听 URL 变化
