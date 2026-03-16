@@ -220,10 +220,8 @@ async fn handle_proxy_request(
     log::info!("[LocalServer] Received {} request: target={}, method={:?}", 
         if is_media { "media" } else { "proxy" }, req.target, req.method);
 
-    // 创建 client：禁用自动 gzip/deflate 解压（手动处理），但启用 brotli 自动解压
+    // 创建 client：自动处理 gzip/deflate/brotli 压缩
     let client = reqwest::Client::builder()
-        .no_gzip()
-        .no_deflate()
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
@@ -263,20 +261,20 @@ async fn handle_proxy_request(
         "host", "connection", "keep-alive", "proxy-authenticate", 
         "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade",
         "sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site", "sec-ch-ua", 
-        "sec-ch-ua-mobile", "sec-ch-ua-platform",
+        "sec-ch-ua-mobile", "sec-ch-ua-platform", "x-request-key",
     ].iter().cloned().collect();
     
     if let Some(ref custom_headers) = req.headers {
         // 先添加 PWA 提供的 headers（优先级高）
         for (key, value) in custom_headers {
             let key_lower = key.to_lowercase();
-            
+
             // 跳过 hop-by-hop headers
             if hop_by_hop_headers.contains(key_lower.as_str()) {
                 log::debug!("[LocalServer] Skipping hop-by-hop header: {}", key);
                 continue;
             }
-            
+
             // Range 头特殊处理，支持音频/视频流
             if key_lower == "range" {
                 log::info!("[LocalServer] Adding Range header for streaming: {} = {}", key, value);
@@ -284,15 +282,25 @@ async fn handle_proxy_request(
             request_builder = request_builder.header(key, value);
             added_headers.insert(key_lower);
         }
+
+        // 调试日志：输出所有已添加的 PWA headers
+        log::info!("[LocalServer] Added PWA headers: {:?}", custom_headers);
     }
 
     // 添加 body
     if let Some(mut body) = req.body {
         // 检查 Content-Type，如果是 form-urlencoded 且 body 被 JSON 编码（带引号），解码它
+        // 使用不区分大小写的方式查找 content-type header
         let content_type = req.headers.as_ref()
-            .and_then(|h| h.get("content-type").or_else(|| h.get("Content-Type")))
-            .map(|s| s.to_lowercase());
+            .and_then(|h| {
+                h.iter()
+                    .find(|(k, _)| k.to_lowercase() == "content-type")
+                    .map(|(_, v)| v.to_lowercase())
+            });
         
+        log::info!("[LocalServer] Request content-type: {}", content_type.as_ref().map_or("unknown", |v| v));
+        log::info!("[LocalServer] Request body: {}", body);
+
         if content_type.as_ref().map_or(false, |ct| ct.contains("application/x-www-form-urlencoded")) {
             // 去掉可能的 JSON 字符串引号
             if body.starts_with('"') && body.ends_with('"') && body.len() >= 2 {
@@ -309,184 +317,41 @@ async fn handle_proxy_request(
     match request_builder.send().await {
         Ok(response) => {
             let status = response.status().as_u16();
-            let mut content_type = response
-                .headers()
-                .get("content-type")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("application/octet-stream")
-                .to_string();
-            
-            log::info!("[LocalServer] Upstream Content-Type: {}", content_type);
-            
-            // 如果 content-type 是通用的 octet-stream，尝试从 URL 推断
-            if content_type == "application/octet-stream" {
-                let target_lower = req.target.to_lowercase();
-                let inferred = if target_lower.ends_with(".jpg") || target_lower.ends_with(".jpeg") {
-                    "image/jpeg"
-                } else if target_lower.ends_with(".png") {
-                    "image/png"
-                } else if target_lower.ends_with(".gif") {
-                    "image/gif"
-                } else if target_lower.ends_with(".webp") {
-                    "image/webp"
-                } else if target_lower.ends_with(".mp4") {
-                    "video/mp4"
-                } else if target_lower.ends_with(".mp3") {
-                    "audio/mpeg"
-                } else {
-                    &content_type
-                };
-                if inferred != &content_type {
-                    log::info!("[LocalServer] Inferred content-type from URL: {} -> {}", content_type, inferred);
-                    content_type = inferred.to_string();
-                }
-            }
-            
-            // 对于 audio/mpeg，尝试使用 audio/mp3 以兼容 WebKitGTK
-            // if content_type == "audio/mpeg" {
-            //     content_type = "audio/mp3".to_string();
-            //     log::info!("[LocalServer] Changed content-type from audio/mpeg to audio/mp3 for WebKitGTK compatibility");
-            // }
-            
-            let content_length = response
-                .headers()
-                .get("content-length")
-                .and_then(|v| v.to_str().ok());
-            
-            log::info!("[LocalServer] Upstream response: status={}, content-type={}, content-length={:?}", 
-                status, content_type, content_length);
-            
-            // 打印所有响应头用于调试
-            log::info!("[LocalServer] All upstream headers:");
-            for (key, value) in response.headers() {
-                if let Ok(v) = value.to_str() {
-                    log::info!("[LocalServer]   {}: {}", key, v);
-                }
-            }
 
-            // 检查是否为流媒体（音频/视频）
-            let is_streaming = content_type.starts_with("audio/") 
-                || content_type.starts_with("video/")
-                || response.status() == 206;  // 206 Partial Content
+            log::info!("[LocalServer] Upstream response: status={}", status);
 
-            // 复制响应头
+            // 复制所有响应头（除了 hop-by-hop 头和 CORS 头）
             let mut response_builder = Response::builder().status(status);
-            
-            // 检查是否有压缩编码
-            let has_encoding = response
-                .headers()
-                .get("content-encoding")
-                .map(|v| !v.to_str().unwrap_or("").is_empty())
-                .unwrap_or(false);
 
-            // 复制需要的响应头（content-type 除外，使用我们修改后的）
+            // hop-by-hop headers 不应该转发
+            // CORS 头需要强制覆盖为 * 以支持跨域
+            let hop_by_hop_response_headers: std::collections::HashSet<&str> = [
+                "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+                "te", "trailers", "transfer-encoding", "upgrade",
+                "access-control-allow-origin", "access-control-allow-methods",
+                "access-control-allow-headers", "access-control-max-age",
+            ].iter().cloned().collect();
+
             for (key, value) in response.headers() {
                 let key_lower = key.as_str().to_lowercase();
-                // 保留这些头对流媒体很重要（排除 content-type）
-                // 如果有压缩编码，不复制 content-length（解压后会重新计算）
-                if key_lower == "accept-ranges"
-                    || key_lower == "content-range"
-                    || key_lower == "etag"
-                    || key_lower == "last-modified" {
-                    if let Ok(v) = value.to_str() {
-                        response_builder = response_builder.header(key.as_str(), v);
-                    }
-                }
-                // 只有在没有压缩编码时才复制 content-length
-                if key_lower == "content-length" && !has_encoding {
+                if !hop_by_hop_response_headers.contains(key_lower.as_str()) {
                     if let Ok(v) = value.to_str() {
                         response_builder = response_builder.header(key.as_str(), v);
                     }
                 }
             }
-            
-            // 手动设置 content-type（使用可能修改后的值）
-            log::info!("[LocalServer] Setting response Content-Type: {}", content_type);
-            response_builder = response_builder.header("Content-Type", &content_type);
 
-            // 添加 CORS 头和安全头
+            // 强制添加 CORS 头，确保跨域请求能正常工作
             response_builder = response_builder
                 .header("Access-Control-Allow-Origin", "*")
                 .header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
                 .header("Access-Control-Allow-Headers", "*")
-                .header("X-Content-Type-Options", "nosniff");  // 强制使用提供的 content-type，防止错误识别
-            
-            // 对于音频流，添加额外的兼容性头
-            if is_streaming {
-                response_builder = response_builder
-                    .header("Accept-Ranges", "bytes");  // 明确支持 Range 请求
-                
-                // 如果是音频，尝试添加 Content-Disposition 帮助识别
-                if content_type.starts_with("audio/") {
-                    // 从 URL 中提取文件名
-                    let filename = req.target
-                        .split('/')
-                        .last()
-                        .and_then(|s| s.split('?').next())
-                        .unwrap_or("audio.mp3");
-                    response_builder = response_builder
-                        .header("Content-Disposition", format!("inline; filename=\"{}\"", filename));
-                }
-            }
+                .header("X-Content-Type-Options", "nosniff");
 
-            // 根据请求类型处理响应
-            if is_media {
-                // 音视频：流式传输，无需处理 gzip（已禁用）
-                log::info!("[LocalServer] Streaming media response");
-                let stream = response.bytes_stream();
-                let body = Body::wrap_stream(stream);
-                Ok(response_builder.body(body).unwrap())
-            } else {
-                // 普通请求：检查并处理 gzip/deflate
-                let encoding = response
-                    .headers()
-                    .get("content-encoding")
-                    .map(|v| v.to_str().unwrap_or("").to_lowercase())
-                    .unwrap_or_default();
-                
-                log::info!("[LocalServer] Response encoding: '{}'", encoding);
-
-                let body_bytes = match response.bytes().await {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        log::error!("[LocalServer] Failed to read response body: {}", e);
-                        return Ok(Response::builder()
-                            .status(500)
-                            .body(Body::from(format!("Error: {}", e)))
-                            .unwrap());
-                    }
-                };
-                
-                // 解压 gzip 或 deflate
-                let body = if encoding.contains("gzip") || body_bytes.starts_with(&[0x1f, 0x8b]) {
-                    use std::io::Read;
-                    let mut decoder = flate2::read::GzDecoder::new(&body_bytes[..]);
-                    let mut decompressed = Vec::new();
-                    match decoder.read_to_end(&mut decompressed) {
-                        Ok(_) => decompressed,
-                        Err(e) => {
-                            log::error!("[LocalServer] Failed to decompress gzip: {}", e);
-                            body_bytes.to_vec()
-                        }
-                    }
-                } else if encoding.contains("deflate") {
-                    use std::io::Read;
-                    let mut decoder = flate2::read::ZlibDecoder::new(&body_bytes[..]);
-                    let mut decompressed = Vec::new();
-                    match decoder.read_to_end(&mut decompressed) {
-                        Ok(_) => decompressed,
-                        Err(e) => {
-                            log::error!("[LocalServer] Failed to decompress deflate: {}", e);
-                            body_bytes.to_vec()
-                        }
-                    }
-                } else {
-                    body_bytes.to_vec()
-                };
-
-                log::debug!("[LocalServer] Returning response, size: {} bytes", body.len());
-                Ok(response_builder.body(Body::from(body)).unwrap())
-            }
+            // 流式传输 body（reqwest 已经自动解压）
+            let stream = response.bytes_stream();
+            let body = Body::wrap_stream(stream);
+            Ok(response_builder.body(body).unwrap())
         }
         Err(e) => {
             log::error!("[LocalServer] Proxy request failed: {}", e);
@@ -513,111 +378,45 @@ async fn handle_static_file(path: &str) -> Result<impl Reply, Infallible> {
                 .unwrap());
         }
     };
-    
+
     log::info!("[LocalServer] Static file proxy: {}", url);
-    
-    // 代理图片请求，禁用自动 gzip/deflate 解压（手动处理），但启用 brotli
+
+    // 自动处理压缩
     let client = reqwest::Client::builder()
-        .no_gzip()
-        .no_deflate()
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
-    
+
     match client.get(&url).send().await {
         Ok(response) => {
             let status = response.status().as_u16();
-            let headers: HashMap<String, String> = response
-                .headers()
-                .iter()
-                .filter_map(|(k, v)| {
-                    v.to_str().ok().map(|s| (k.to_string(), s.to_string()))
-                })
-                .collect();
-            
-            // 检查是否有压缩编码
-            let encoding = response
-                .headers()
-                .get("content-encoding")
-                .map(|v| v.to_str().unwrap_or("").to_lowercase())
-                .unwrap_or_default();
 
-            let body_bytes = match response.bytes().await {
-                Ok(bytes) => bytes,
-                Err(e) => {
-                    log::error!("[LocalServer] Failed to read image: {}", e);
-                    return Ok(Response::builder()
-                        .status(500)
-                        .body(Body::from(format!("Error: {}", e)))
-                        .unwrap());
-                }
-            };
-
-            // 解压 gzip 或 deflate
-            let body_bytes = if encoding.contains("gzip") {
-                use std::io::Read;
-                let mut decoder = flate2::read::GzDecoder::new(&body_bytes[..]);
-                let mut decompressed = Vec::new();
-                match decoder.read_to_end(&mut decompressed) {
-                    Ok(_) => bytes::Bytes::from(decompressed),
-                    Err(e) => {
-                        log::error!("[LocalServer] Failed to decompress gzip: {}", e);
-                        body_bytes
-                    }
-                }
-            } else if encoding.contains("deflate") {
-                use std::io::Read;
-                let mut decoder = flate2::read::ZlibDecoder::new(&body_bytes[..]);
-                let mut decompressed = Vec::new();
-                match decoder.read_to_end(&mut decompressed) {
-                    Ok(_) => bytes::Bytes::from(decompressed),
-                    Err(e) => {
-                        log::error!("[LocalServer] Failed to decompress deflate: {}", e);
-                        body_bytes
-                    }
-                }
-            } else {
-                body_bytes
-            };
-            
-            // 从 URL 推断 MIME 类型
-            let mime_type = if let Some(ct) = headers.get("content-type") {
-                ct.clone()
-            } else {
-                // 从 URL 扩展名推断
-                let ext = url.split('.').last().unwrap_or("").to_lowercase();
-                match ext.as_str() {
-                    "jpg" | "jpeg" => "image/jpeg",
-                    "png" => "image/png",
-                    "gif" => "image/gif",
-                    "webp" => "image/webp",
-                    "bmp" => "image/bmp",
-                    "svg" => "image/svg+xml",
-                    _ => "application/octet-stream",
-                }.to_string()
-            };
-            
+            // 复制响应头（除了 hop-by-hop 和 CORS 头）
             let mut response_builder = Response::builder().status(status);
-            
-            // 设置内容类型
-            response_builder = response_builder.header("Content-Type", mime_type);
-            
-            // 设置内容长度
-            if let Some(cl) = headers.get("content-length") {
-                response_builder = response_builder.header("Content-Length", cl);
-            } else {
-                response_builder = response_builder.header("Content-Length", body_bytes.len().to_string());
+            let hop_by_hop = ["connection", "keep-alive", "transfer-encoding", "upgrade",
+                "access-control-allow-origin", "access-control-allow-methods",
+                "access-control-allow-headers"];
+
+            for (key, value) in response.headers() {
+                let key_lower = key.as_str().to_lowercase();
+                if !hop_by_hop.contains(&key_lower.as_str()) {
+                    if let Ok(v) = value.to_str() {
+                        response_builder = response_builder.header(key.as_str(), v);
+                    }
+                }
             }
-            
-            // 添加 CORS 头
+
+            // 强制添加 CORS 头
             response_builder = response_builder
                 .header("Access-Control-Allow-Origin", "*")
                 .header("Cache-Control", "public, max-age=3600");
-            
-            Ok(response_builder.body(Body::from(body_bytes)).unwrap())
+
+            // 流式传输 body
+            let stream = response.bytes_stream();
+            Ok(response_builder.body(Body::wrap_stream(stream)).unwrap())
         }
         Err(e) => {
-            log::error!("[LocalServer] Image proxy failed: {}", e);
+            log::error!("[LocalServer] Static file proxy failed: {}", e);
             Ok(Response::builder()
                 .status(502)
                 .header("Content-Type", "text/plain")

@@ -1,5 +1,5 @@
 /**
- * Audio API - 使用 Rust 后端播放音频（绕过 WebKitGTK GStreamer）
+ * Audio API - 使用 Tauri AudioPlayer 插件播放音频
  * 支持播放进度获取
  */
 
@@ -9,13 +9,15 @@ let isPlaying = false;
 let progressInterval = null;
 
 /**
- * 播放音频（使用 rodio 后端）
+ * 播放音频（使用插件后端）
  * @param {string} url - 音频 URL
  */
 export async function playAudio(url) {
   if (window.__TAURI__) {
     try {
-      await window.__TAURI__.invoke("audio_play", { url });
+      await window.__TAURI__.invoke("plugin:audioplayer|play", {
+        payload: { url }
+      });
       currentAudioUrl = url;
       isPlaying = true;
       startProgressTracking();
@@ -36,7 +38,7 @@ export async function playAudio(url) {
  */
 export function pauseAudio() {
   if (window.__TAURI__) {
-    window.__TAURI__.invoke("audio_pause");
+    window.__TAURI__.invoke("plugin:audioplayer|pause");
     isPlaying = false;
   }
 
@@ -51,7 +53,7 @@ export function pauseAudio() {
  */
 export function resumeAudio() {
   if (window.__TAURI__) {
-    window.__TAURI__.invoke("audio_resume");
+    window.__TAURI__.invoke("plugin:audioplayer|resume");
     isPlaying = true;
     startProgressTracking();
   }
@@ -68,7 +70,7 @@ export function stopAudio() {
   stopProgressTracking();
 
   if (window.__TAURI__) {
-    window.__TAURI__.invoke("audio_stop");
+    window.__TAURI__.invoke("plugin:audioplayer|stop");
   }
 
   // 同时停止原生音频
@@ -86,7 +88,7 @@ export function stopAudio() {
  */
 export function setAudioVolume(volume) {
   if (window.__TAURI__) {
-    window.__TAURI__.invoke("audio_set_volume", { volume });
+    window.__TAURI__.invoke("plugin:audioplayer|set_volume", { volume });
   }
 
   if (nativeAudioElement) {
@@ -100,7 +102,7 @@ export function setAudioVolume(volume) {
  */
 export function setAudioLoop(loop) {
   if (window.__TAURI__) {
-    window.__TAURI__.invoke("audio_set_loop", { loopPlay: loop });
+    window.__TAURI__.invoke("plugin:audioplayer|set_loop", { loop_enabled: loop });
   }
 
   if (nativeAudioElement) {
@@ -115,7 +117,7 @@ export function setAudioLoop(loop) {
 export async function getAudioState() {
   if (window.__TAURI__) {
     try {
-      return await window.__TAURI__.invoke("audio_get_state");
+      return await window.__TAURI__.invoke("plugin:audioplayer|get_state");
     } catch (e) {
       console.error("[PWA Adapt Audio] Failed to get state:", e);
     }
@@ -135,7 +137,7 @@ export async function getAudioState() {
 export async function getAudioPosition() {
   if (window.__TAURI__) {
     try {
-      return await window.__TAURI__.invoke("audio_get_position");
+      return await window.__TAURI__.invoke("plugin:audioplayer|get_position");
     } catch (e) {
       console.error("[PWA Adapt Audio] Failed to get position:", e);
     }
@@ -150,7 +152,7 @@ export async function getAudioPosition() {
 export async function getAudioCurrentUrl() {
   if (window.__TAURI__) {
     try {
-      return await window.__TAURI__.invoke("audio_get_current_url");
+      return await window.__TAURI__.invoke("plugin:audioplayer|get_current_url");
     } catch (e) {
       console.error("[PWA Adapt Audio] Failed to get current URL:", e);
     }
@@ -165,7 +167,7 @@ export async function getAudioCurrentUrl() {
 export async function getAudioDuration() {
   if (window.__TAURI__) {
     try {
-      return await window.__TAURI__.invoke("audio_get_duration");
+      return await window.__TAURI__.invoke("plugin:audioplayer|get_duration");
     } catch (e) {
       console.error("[PWA Adapt Audio] Failed to get duration:", e);
     }
@@ -181,7 +183,7 @@ export function seekAudio(positionMs) {
   console.log("[PWA Adapt Audio] Seek to:", positionMs);
 
   if (window.__TAURI__) {
-    window.__TAURI__.invoke("audio_seek", { positionMs });
+    window.__TAURI__.invoke("plugin:audioplayer|seek", { position_ms: positionMs });
   }
 
   if (nativeAudioElement) {
@@ -195,15 +197,6 @@ export function seekAudio(positionMs) {
  */
 export async function playVideo(url) {
   console.log("[PWA Adapt Video] Playing:", url);
-
-  if (window.__TAURI__) {
-    try {
-      await window.__TAURI__.invoke("video_play", { url });
-      return true;
-    } catch (e) {
-      console.error("[PWA Adapt Video] Failed to play:", e);
-    }
-  }
 
   // 回退：使用 video 标签
   const video = document.createElement("video");
@@ -345,4 +338,3 @@ export class AdaptAudio {
     }
   }
 }
-

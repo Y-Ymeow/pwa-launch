@@ -1,6 +1,6 @@
 [package]
 name = "pwa_container"
-version = "0.2.7"
+version = "0.2.9"
 description = "PWA 安装容器 - 跨平台应用容器，支持 PC 和移动端"
 authors = ["you"]
 edition = "2021"
@@ -36,6 +36,7 @@ http = "1"
 base64 = "0.22"
 tauri-plugin-os = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-audioplayer = { path = "../tauri-plugin-audioplayer" }
 tokio-tungstenite = "0.21"
 futures-util = "0.3"
 flate2 = "1"
@@ -48,7 +49,6 @@ warp = "0.3"
 tokio-stream = "0.1"
 bytes = "1"
 lazy_static = "1.5.0"
-libmpv2 = "5.0.3"
 
 
 [features]

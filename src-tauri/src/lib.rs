@@ -26,8 +26,6 @@ pub fn run() {
         android_logger::init_once(
             android_logger::Config::default().with_max_level(log::LevelFilter::Debug),
         );
-        // 初始化 Android JVM 用于 JNI 调用
-        commands::android_audio::android::init_jvm();
     }
 
     let mut builder = tauri::Builder::default().plugin(tauri_plugin_fs::init());
@@ -51,6 +49,7 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_audioplayer::init())
         .plugin(shell_plugin())
         .plugin(fs_plugin())
         .plugin(http_plugin())
@@ -68,23 +67,6 @@ pub fn run() {
                 .header("Cache-Control", "public, max-age=3600")
                 .body(ADAPT_JS.as_bytes().to_vec())
                 .expect("Failed to build response")
-        })
-        .register_uri_scheme_protocol("fetch", |app, request| {
-            // Fetch 协议：fetch://example.com/path -> 代理 HTTP 请求
-            // 比 invoke 快，不需要 postMessage 桥接
-            // 从 app state 获取 CookieStore
-            let cookie_store = app.app_handle().state::<commands::CookieStore>();
-            match commands::fetch_protocol::handle_fetch_request(&request, Some(&cookie_store)) {
-                Ok(res) => res,
-                Err(e) => {
-                    log::error!("[FetchProtocol] Error: {}", e);
-                    http::Response::builder()
-                        .status(500)
-                        .header("Content-Type", "text/plain")
-                        .body(e.to_string().into_bytes())
-                        .unwrap()
-                }
-            }
         })
         .setup(move |app| {
             // 启动本地服务器（必须在 tokio 运行时中执行）
@@ -194,17 +176,6 @@ pub fn run() {
             commands::reinject_browser_ui,
             commands::check_browser_ui,
             commands::eval_js,
-            commands::audio_play,
-            commands::audio_pause,
-            commands::audio_resume,
-            commands::audio_stop,
-            commands::audio_set_volume,
-            commands::audio_get_state,
-            commands::audio_get_position,
-            commands::audio_get_duration,
-            commands::audio_seek,
-            commands::audio_get_current_url,
-            commands::audio_set_loop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -71,6 +71,7 @@
     "allow-audio-seek",
     "allow-audio-get-current-url",
     "allow-audio-set-loop",
-    "shell:allow-open"
+    "shell:allow-open",
+    "audioplayer:default"
   ]
 }

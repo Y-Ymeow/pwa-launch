@@ -3238,7 +3238,6 @@ dependencies = [
  "http 1.4.0",
  "jni",
  "lazy_static",
- "libmpv2",
  "log",
  "ndk-context",
  "regex",
@@ -3248,6 +3247,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
+ "tauri-plugin-audioplayer",
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "tauri-plugin-http",
@@ -4652,6 +4652,20 @@ dependencies = [
  "tauri-utils",
  "toml 0.9.12+spec-1.1.0",
  "walkdir",
+]
+
+[[package]]
+name = "tauri-plugin-audioplayer"
+version = "0.1.0"
+dependencies = [
+ "lazy_static",
+ "libc",
+ "libmpv2",
+ "log",
+ "serde",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

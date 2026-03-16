@@ -63,12 +63,6 @@ class MainActivity : TauriActivity() {
         // 启用 WebView 远程调试（允许 Chrome DevTools 连接）
         WebView.setWebContentsDebuggingEnabled(true)
 
-        // 初始化音频播放器
-        AudioPlayerInstance.init(this)
-        
-        // 预加载 JNI 桥接类，确保 Rust 可以找到
-        AudioPlayerBridge::class.java
-        
         // 刘海屏适配：允许内容延伸到刘海区域
         setupEdgeToEdgeDisplay()
 

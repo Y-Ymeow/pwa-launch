@@ -53,12 +53,8 @@ impl ProxySettings {
 }
 
 // 子模块
-pub mod audio_player;
-#[cfg(target_os = "android")]
-pub mod android_audio;
 pub mod backup;
 pub mod cookie;
-pub mod fetch_protocol;
 pub mod file_dialog;
 pub mod fs;
 pub mod opfs;
@@ -66,12 +62,9 @@ pub mod proxy;
 
 pub mod pwa;
 
-pub mod stream_proxy;
 pub mod webview;
-pub mod ws_proxy;
 
 // 重新导出
-pub use audio_player::*;
 pub use backup::*;
 pub use cookie::*;
 pub use file_dialog::*;
@@ -80,9 +73,7 @@ pub use opfs::*;
 pub use proxy::*;
 
 pub use pwa::*;
-pub use stream_proxy::*;
 pub use webview::*;
-pub use ws_proxy::*;
 
 // 辅助函数
 fn extract_domain(url: &str) -> String {
