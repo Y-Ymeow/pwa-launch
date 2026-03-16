@@ -220,19 +220,15 @@ async fn handle_proxy_request(
     log::info!("[LocalServer] Received {} request: target={}, method={:?}", 
         if is_media { "media" } else { "proxy" }, req.target, req.method);
 
-    // 创建 client：音视频禁用 gzip，普通请求启用 gzip，都启用重定向
-    let client = if is_media {
-        reqwest::Client::builder()
-            .no_gzip()
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new())
-    } else {
-        reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new())
-    };
+    // 创建 client：禁用自动 gzip 解压，手动处理压缩
+    // 这样可以正确控制 content-length 和响应体
+    let client = reqwest::Client::builder()
+        .no_gzip()
+        .no_deflate()
+        .no_brotli()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
 
     let method = req.method.unwrap_or_else(|| "GET".to_string());
     let mut request_builder = client.request(
@@ -482,8 +478,11 @@ async fn handle_static_file(path: &str) -> Result<impl Reply, Infallible> {
     
     log::info!("[LocalServer] Static file proxy: {}", url);
     
-    // 代理图片请求，reqwest 默认自动跟随重定向（最多 10 次）
+    // 代理图片请求，禁用自动 gzip 解压
     let client = reqwest::Client::builder()
+        .no_gzip()
+        .no_deflate()
+        .no_brotli()
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
@@ -499,6 +498,13 @@ async fn handle_static_file(path: &str) -> Result<impl Reply, Infallible> {
                 })
                 .collect();
             
+            // 检查是否有压缩编码
+            let encoding = response
+                .headers()
+                .get("content-encoding")
+                .map(|v| v.to_str().unwrap_or("").to_lowercase())
+                .unwrap_or_default();
+
             let body_bytes = match response.bytes().await {
                 Ok(bytes) => bytes,
                 Err(e) => {
@@ -508,6 +514,33 @@ async fn handle_static_file(path: &str) -> Result<impl Reply, Infallible> {
                         .body(Body::from(format!("Error: {}", e)))
                         .unwrap());
                 }
+            };
+
+            // 解压 gzip 或 deflate
+            let body_bytes = if encoding.contains("gzip") {
+                use std::io::Read;
+                let mut decoder = flate2::read::GzDecoder::new(&body_bytes[..]);
+                let mut decompressed = Vec::new();
+                match decoder.read_to_end(&mut decompressed) {
+                    Ok(_) => bytes::Bytes::from(decompressed),
+                    Err(e) => {
+                        log::error!("[LocalServer] Failed to decompress gzip: {}", e);
+                        body_bytes
+                    }
+                }
+            } else if encoding.contains("deflate") {
+                use std::io::Read;
+                let mut decoder = flate2::read::ZlibDecoder::new(&body_bytes[..]);
+                let mut decompressed = Vec::new();
+                match decoder.read_to_end(&mut decompressed) {
+                    Ok(_) => bytes::Bytes::from(decompressed),
+                    Err(e) => {
+                        log::error!("[LocalServer] Failed to decompress deflate: {}", e);
+                        body_bytes
+                    }
+                }
+            } else {
+                body_bytes
             };
             
             // 从 URL 推断 MIME 类型
