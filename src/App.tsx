@@ -104,6 +104,8 @@ function App() {
           isMedia,
           hasHeaders: !!headers,
           hasBody: !!body,
+          bodyType: typeof body,
+          bodyValue: body,
         });
         try {
           // 把所有请求参数放在 body 里传给代理服务器
