@@ -258,10 +258,25 @@ async fn handle_proxy_request(
     // 使用 lowercase key 去重，PWA 提供的优先级更高
     let mut added_headers: std::collections::HashSet<String> = std::collections::HashSet::new();
     
+    // 不应该转发的 headers（hop-by-hop 或浏览器自动添加的）
+    let hop_by_hop_headers: std::collections::HashSet<&str> = [
+        "host", "connection", "keep-alive", "proxy-authenticate", 
+        "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade",
+        "sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site", "sec-ch-ua", 
+        "sec-ch-ua-mobile", "sec-ch-ua-platform",
+    ].iter().cloned().collect();
+    
     if let Some(ref custom_headers) = req.headers {
         // 先添加 PWA 提供的 headers（优先级高）
         for (key, value) in custom_headers {
             let key_lower = key.to_lowercase();
+            
+            // 跳过 hop-by-hop headers
+            if hop_by_hop_headers.contains(key_lower.as_str()) {
+                log::debug!("[LocalServer] Skipping hop-by-hop header: {}", key);
+                continue;
+            }
+            
             // Range 头特殊处理，支持音频/视频流
             if key_lower == "range" {
                 log::info!("[LocalServer] Adding Range header for streaming: {} = {}", key, value);
