@@ -217,14 +217,42 @@ async fn handle_proxy_request(
     http_headers: warp::http::HeaderMap,
     is_media: bool,
 ) -> Result<impl Reply, Infallible> {
-    log::info!("[LocalServer] Received {} request: target={}, method={:?}", 
+    log::info!("[LocalServer] Received {} request: target={}, method={:?}",
         if is_media { "media" } else { "proxy" }, req.target, req.method);
 
-    // 创建 client：自动处理 gzip/deflate/brotli 压缩
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
+    // 创建 client：自动处理 gzip/deflate/brotli 压缩，并应用代理设置
+    let mut client_builder = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10));
+
+    // 从数据库读取代理设置
+    if let Some(db_mutex) = crate::DB_CONN.get() {
+        if let Ok(conn) = db_mutex.lock() {
+            let enabled = crate::db::get_config(&conn, "proxy_enabled").ok().flatten() == Some("true".to_string());
+            if enabled {
+                let proxy_type = crate::db::get_config(&conn, "proxy_type").ok().flatten().unwrap_or_else(|| "http".to_string());
+                let proxy_host = crate::db::get_config(&conn, "proxy_host").ok().flatten().unwrap_or_default();
+                let proxy_port = crate::db::get_config(&conn, "proxy_port").ok().flatten().unwrap_or_else(|| "8080".to_string());
+                let proxy_username = crate::db::get_config(&conn, "proxy_username").ok().flatten();
+                let proxy_password = crate::db::get_config(&conn, "proxy_password").ok().flatten();
+
+                if !proxy_host.is_empty() {
+                    let port: u16 = proxy_port.parse().unwrap_or(8080);
+                    let proxy_url = if let (Some(u), Some(p)) = (proxy_username, proxy_password) {
+                        format!("{}://{}:{}@{}:{}", proxy_type, u, p, proxy_host, port)
+                    } else {
+                        format!("{}://{}:{}", proxy_type, proxy_host, port)
+                    };
+
+                    log::info!("[LocalServer] Using proxy: {}://{}:{}", proxy_type, proxy_host, port);
+                    if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
+                        client_builder = client_builder.proxy(proxy);
+                    }
+                }
+            }
+        }
+    }
+
+    let client = client_builder.build().unwrap_or_else(|_| reqwest::Client::new());
 
     let method = req.method.unwrap_or_else(|| "GET".to_string());
     let mut request_builder = client.request(
@@ -526,12 +554,40 @@ async fn handle_static_file(path: &str, original_headers: warp::http::HeaderMap)
         }
     }
 
-    // 自动处理压缩
-    let client = reqwest::Client::builder()
+    // 自动处理压缩，并应用代理设置
+    let mut client_builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
-        .default_headers(headers)
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
+        .default_headers(headers);
+
+    // 从数据库读取代理设置
+    if let Some(db_mutex) = crate::DB_CONN.get() {
+        if let Ok(conn) = db_mutex.lock() {
+            let enabled = crate::db::get_config(&conn, "proxy_enabled").ok().flatten() == Some("true".to_string());
+            if enabled {
+                let proxy_type = crate::db::get_config(&conn, "proxy_type").ok().flatten().unwrap_or_else(|| "http".to_string());
+                let proxy_host = crate::db::get_config(&conn, "proxy_host").ok().flatten().unwrap_or_default();
+                let proxy_port = crate::db::get_config(&conn, "proxy_port").ok().flatten().unwrap_or_else(|| "8080".to_string());
+                let proxy_username = crate::db::get_config(&conn, "proxy_username").ok().flatten();
+                let proxy_password = crate::db::get_config(&conn, "proxy_password").ok().flatten();
+
+                if !proxy_host.is_empty() {
+                    let port: u16 = proxy_port.parse().unwrap_or(8080);
+                    let proxy_url = if let (Some(u), Some(p)) = (proxy_username, proxy_password) {
+                        format!("{}://{}:{}@{}:{}", proxy_type, u, p, proxy_host, port)
+                    } else {
+                        format!("{}://{}:{}", proxy_type, proxy_host, port)
+                    };
+
+                    log::info!("[LocalServer] Static proxy using: {}://{}:{}", proxy_type, proxy_host, port);
+                    if let Ok(proxy) = reqwest::Proxy::all(&proxy_url) {
+                        client_builder = client_builder.proxy(proxy);
+                    }
+                }
+            }
+        }
+    }
+
+    let client = client_builder.build().unwrap_or_else(|_| reqwest::Client::new());
 
     match client.get(&url).send().await {
         Ok(response) => {
