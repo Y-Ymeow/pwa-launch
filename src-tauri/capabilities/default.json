@@ -3,6 +3,9 @@
   "identifier": "main-capability",
   "description": "Default capability for the app",
   "windows": ["main"],
+  "remote": {
+    "urls": ["http://*", "https://*", "http://localhost:*", "http://192.168.*:*"]
+  },
   "permissions": [
     "core:default",
     "shell:default",
