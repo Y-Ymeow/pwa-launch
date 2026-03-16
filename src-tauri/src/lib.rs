@@ -189,10 +189,43 @@ pub fn run() {
                     String::new()
                 };
 
-                let window = WebviewWindowBuilder::new(app, "main", url)
+                // 从数据库读取代理设置
+                let proxy_url: Option<reqwest::Url> = if let Some(db_mutex) = DB_CONN.get() {
+                    if let Ok(conn) = db_mutex.lock() {
+                        let enabled = crate::db::get_config(&conn, "proxy_enabled").ok().flatten() == Some("true".to_string());
+                        if enabled {
+                            let proxy_type = crate::db::get_config(&conn, "proxy_type").ok().flatten().unwrap_or_else(|| "http".to_string());
+                            let proxy_host = crate::db::get_config(&conn, "proxy_host").ok().flatten().unwrap_or_default();
+                            let proxy_port = crate::db::get_config(&conn, "proxy_port").ok().flatten().unwrap_or_else(|| "8080".to_string());
+                            
+                            if !proxy_host.is_empty() {
+                                let port: u16 = proxy_port.parse().unwrap_or(8080);
+                                let url_str = format!("{}://{}:{}", proxy_type, proxy_host, port);
+                                url_str.parse::<reqwest::Url>().ok()
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                let mut builder = WebviewWindowBuilder::new(app, "main", url)
                     .devtools(true)
-                    .user_agent(&user_agent)
-                    .build()?;
+                    .user_agent(&user_agent);
+
+                // 设置代理（如果配置了）
+                if let Some(proxy) = proxy_url {
+                    log::info!("[WebView] Setting proxy: {}", proxy);
+                    builder = builder.proxy_url(proxy);
+                }
+
+                let window = builder.build()?;
 
                 // 设置窗口大小（仅在非 Android 平台）
                 #[cfg(not(target_os = "android"))]

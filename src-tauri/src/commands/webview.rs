@@ -141,22 +141,23 @@ pub const INJECT_BROWSER_UI: &str = r#"
             existingHost.remove();
         }
         
-        document.documentElement.style.paddingTop = isMobile() ? '48px' : '52px';
-        
         // 修复固定定位元素
         const style = document.createElement('style');
         style.id = '__browser_ui_fix_style__';
-        style.textContent = `
-            body *[style*="position: fixed"][style*="top: 0"]:not([data-browser-ui]),
-            body *[style*="position:fixed"][style*="top:0"]:not([data-browser-ui]),
-            body *[style*="position: sticky"][style*="top: 0"]:not([data-browser-ui]),
-            body *[style*="position:sticky"][style*="top:0"]:not([data-browser-ui]),
-            body header:not([data-browser-ui]),
-            body .header:not([data-browser-ui]),
-            body #header:not([data-browser-ui]),
-            body nav:not([data-browser-ui]),
-            body .nav:not([data-browser-ui]) {
-                top: ${isMobile() ? '48px' : '52px'} !important;
+        style.textContent = `       
+            :root {
+            --app-bar-offset: ${isMobile() ? '48px' : '52px'};
+            }
+            .shadow-bar *[style*="position: fixed"][style*="top: 0"]:not([data-browser-ui]),
+            .shadow-bar *[style*="position:fixed"][style*="top:0"]:not([data-browser-ui]),
+            .shadow-bar *[style*="position: sticky"][style*="top: 0"]:not([data-browser-ui]),
+            .shadow-bar *[style*="position:sticky"][style*="top:0"]:not([data-browser-ui]),
+            .shadow-bar header:not([data-browser-ui]),
+            .shadow-bar .header:not([data-browser-ui]),
+            .shadow-bar #header:not([data-browser-ui]),
+            .shadow-bar nav:not([data-browser-ui]),
+            .shadow-bar .nav:not([data-browser-ui]) {
+                top: calc(var(--app-bar-offset) + var(--original-top, 0px)) !important;
             }
             /* 移动端视口优化 */
             @media (max-width: 768px) {
@@ -204,7 +205,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
                     display: flex !important; flex-direction: column !important;
                     box-shadow: 0 2px 10px rgba(0,0,0,0.3) !important; pointer-events: auto !important;
                     border-bottom: 1px solid rgba(255,255,255,0.1) !important;
-                    min-height: ${barHeight} !important;
+                    min-height: ${barHeight} !important;width: 100% !important;
                 }
                 .browser-bar-row {
                     display: flex !important; align-items: center !important;
@@ -390,7 +391,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
         floatBtn.title = '显示/隐藏工具栏';
         floatBtn.textContent = '⋮';
         floatBtn.style.cssText = `
-            position: fixed !important; right: 10px !important;
+            position: fixed !important; right: 10px !important; bottom: 10px !important;
             width: 36px !important; height: 36px !important;
             background: rgba(102,126,234,0.8) !important; border: none !important;
             border-radius: 50% !important; color: white !important;
@@ -458,8 +459,16 @@ pub const INJECT_BROWSER_UI: &str = r#"
             if (isBarVisible) {
                 els.bar.classList.remove('hidden');
                 els.floatBtn.style.display = 'none';
-                // document.documentElement.style.paddingTop = barPosition === 'top' ? (isMobile() ? 48 : 52) : 0;
-                // document.documentElement.style.paddingBottom = barPosition === 'bottom' ? (isMobile() ? 48 : 52) : 0;
+                document.body.style.paddingTop = barPosition === 'top' ? (isMobile() ? 48 : 52) : 0;
+                document.body.style.paddingBottom = barPosition === 'bottom' ? (isMobile() ? 48 : 52) : 0;
+                document.body.style.position = 'relative';
+                if (barPosition === 'top') {
+                    document.body.classList.add('shadow-bar');
+                } else {
+                    document.body.classList.remove('shadow-bar');
+                }
+                document.body.style.minHeight =  barPosition === 'top' ? 'calc(100vh - 52px)': '100vh';
+                document.body.append('<div style="height: 52px;width: 100%;"></div>');
                 
                 if (barPosition === 'bottom') {
                     els.bar.classList.add('position-bottom');
@@ -473,8 +482,11 @@ pub const INJECT_BROWSER_UI: &str = r#"
             } else {
                 els.bar.classList.add('hidden');
                 els.floatBtn.style.display = 'flex';
-                document.documentElement.style.paddingTop = '0';
-                document.documentElement.style.paddingBottom = '0';
+                document.body.classList.remove('shadow-bar');
+                document.body.style.paddingTop = '0';
+                document.body.style.paddingBottom = '0';
+                document.body.style.position = 'static';
+                document.body.style.minHeight = '100vh';
             }
         }
         

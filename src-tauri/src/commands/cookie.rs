@@ -196,6 +196,22 @@ pub async fn set_proxy(
         log::info!("清除代理环境变量");
     }
 
+    // 持久化到数据库
+    if let Some(db_mutex) = crate::DB_CONN.get() {
+        if let Ok(conn) = db_mutex.lock() {
+            let _ = crate::db::set_config(&conn, "proxy_enabled", &enabled.to_string());
+            let _ = crate::db::set_config(&conn, "proxy_type", &format!("{:?}", proxy_type).to_lowercase());
+            let _ = crate::db::set_config(&conn, "proxy_host", &host);
+            let _ = crate::db::set_config(&conn, "proxy_port", &port.to_string());
+            if let Some(ref u) = username {
+                let _ = crate::db::set_config(&conn, "proxy_username", u);
+            }
+            if let Some(ref p) = password {
+                let _ = crate::db::set_config(&conn, "proxy_password", p);
+            }
+        }
+    }
+
     log::info!("设置代理：{:?}", proxy_settings);
     Ok(CommandResponse::success(true))
 }
