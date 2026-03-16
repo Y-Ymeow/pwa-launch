@@ -289,6 +289,8 @@ async fn handle_proxy_request(
                 .unwrap_or("application/octet-stream")
                 .to_string();
             
+            log::info!("[LocalServer] Upstream Content-Type: {}", content_type);
+            
             // 如果 content-type 是通用的 octet-stream，尝试从 URL 推断
             if content_type == "application/octet-stream" {
                 let target_lower = req.target.to_lowercase();
@@ -372,6 +374,7 @@ async fn handle_proxy_request(
             }
             
             // 手动设置 content-type（使用可能修改后的值）
+            log::info!("[LocalServer] Setting response Content-Type: {}", content_type);
             response_builder = response_builder.header("Content-Type", &content_type);
 
             // 添加 CORS 头和安全头
