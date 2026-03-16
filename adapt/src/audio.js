@@ -13,20 +13,8 @@ let progressInterval = null;
  * @param {string} url - 音频 URL
  */
 export async function playAudio(url) {
-  let finalUrl = url;
-
-  // Android: 将 content:// URI 转换成本地 HTTP URL
-  if (url.startsWith("content://")) {
-    try {
-      const result = await window.__TAURI__.invoke("resolve_local_file_url", { path: url });
-      if (result && result.data) {
-        finalUrl = result.data;
-        console.log("[PWA Adapt Audio] Converted content URI to:", finalUrl);
-      }
-    } catch (e) {
-      console.error("[PWA Adapt Audio] Failed to convert content URI:", e);
-    }
-  }
+  // content:// URI 直接传给插件，不转换
+  const finalUrl = url;
 
   if (window.__TAURI__) {
     try {

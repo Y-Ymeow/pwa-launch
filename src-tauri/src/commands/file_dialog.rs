@@ -200,12 +200,6 @@ pub async fn read_file_content(
 pub async fn resolve_local_file_url(path: String) -> Result<CommandResponse<String>, String> {
     log::info!("resolve_local_file_url: {}", path);
 
-    // Android content:// URI 直接返回，让原生插件处理
-    if path.starts_with("content://") {
-        log::info!("Content URI detected, returning as-is: {}", path);
-        return Ok(CommandResponse::success(path));
-    }
-
     // 返回本地 HTTP 服务器 URL
     let port = crate::local_server::get_local_server_port();
     let encoded_path = urlencoding::encode(&path);
