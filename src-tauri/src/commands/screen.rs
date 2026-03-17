@@ -9,13 +9,19 @@ pub async fn set_keep_screen_on(
     #[cfg(target_os = "android")]
     {
         // 通过 JNI 调用 Android 的 MainActivity.setKeepScreenOn
-        use jni::objects::JObject;
-        use jni::signature::JavaType;
-        
-        let result = _app.run_on_android_thread(move |env, activity| {
+        let result = _app.run_on_main_thread(move || {
+            let ctx = ndk_context::android_context();
+            let vm_ptr = ctx.vm();
+            let activity_ptr = ctx.context();
+            
+            // 使用 jni crate 的 JavaVM
+            let vm: jni::JavaVM = unsafe { jni::JavaVM::from_raw(vm_ptr as _) }.expect("Failed to get JavaVM");
+            let mut env = vm.attach_current_thread().expect("Failed to attach thread");
+            let activity = unsafe { jni::objects::JObject::from_raw(activity_ptr as _) };
+            
             let method_name = if enabled { "setKeepScreenOn" } else { "clearKeepScreenOn" };
             let _ = env.call_method(
-                activity,
+                &activity,
                 method_name,
                 "()V",
                 &[],
