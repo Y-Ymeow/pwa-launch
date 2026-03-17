@@ -80,7 +80,7 @@ class AudioPlayerPlugin(private val activity: Activity): Plugin(activity) {
                 val uri = when {
                     url.startsWith("content://") -> {
                         val contentUri = Uri.parse(url)
-                        // 尝试持久化 URI 权限（针对外部存储的 content URI）
+                        // 每次播放都重新获取持久化 URI 权限
                         try {
                             activity.contentResolver.takePersistableUriPermission(
                                 contentUri,
@@ -88,8 +88,8 @@ class AudioPlayerPlugin(private val activity: Activity): Plugin(activity) {
                             )
                             Log.d(TAG, "Persisted URI permission for: $url")
                         } catch (e: Exception) {
-                            // 不是持久化的 URI，可能只是临时权限，继续尝试播放
-                            Log.d(TAG, "Could not persist URI permission, may be temporary: ${e.message}")
+                            // 权限获取失败，记录日志但继续尝试播放
+                            Log.d(TAG, "Could not persist URI permission: ${e.message}")
                         }
                         contentUri
                     }

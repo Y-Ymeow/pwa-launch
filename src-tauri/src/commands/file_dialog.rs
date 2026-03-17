@@ -72,19 +72,7 @@ pub async fn open_file_dialog(
                         // 直接转换为字符串 (Android 返回 content:// URI，桌面返回路径)
                         let path_str = fp.to_string();
                         log::info!("  - Path: {}", path_str);
-                        // Android: 将 content:// URI 复制到应用私有目录
-                        #[cfg(target_os = "android")]
-                        let path_str = if path_str.starts_with("content://") {
-                            match copy_content_uri_to_cache(&app, &path_str) {
-                                Ok(cache_path) => cache_path,
-                                Err(e) => {
-                                    log::error!("Failed to copy content URI: {}", e);
-                                    path_str
-                                }
-                            }
-                        } else {
-                            path_str
-                        };
+                        // Android: 直接返回 content:// URI，播放器会处理权限
                         Some(path_str)
                     })
                     .collect()
@@ -99,19 +87,7 @@ pub async fn open_file_dialog(
             Some(file_path) => {
                 let path_str = file_path.to_string();
                 log::info!("Selected file: {}", path_str);
-                // Android: 将 content:// URI 复制到应用私有目录
-                #[cfg(target_os = "android")]
-                let path_str = if path_str.starts_with("content://") {
-                    match copy_content_uri_to_cache(&app, &path_str) {
-                        Ok(cache_path) => cache_path,
-                        Err(e) => {
-                            log::error!("Failed to copy content URI: {}", e);
-                            path_str
-                        }
-                    }
-                } else {
-                    path_str
-                };
+                // Android: 直接返回 content:// URI，播放器会处理权限
                 vec![path_str]
             }
             None => {

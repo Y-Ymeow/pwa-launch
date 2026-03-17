@@ -18,6 +18,7 @@ import {
   setupXHRProxy,
   setupImageProxy,
   getMediaProxyUrl,
+  getImageProxyUrl,
 } from "./network.js";
 import { injectBrowserUI, initVerifyAssist } from "./ui.js";
 import {
@@ -320,4 +321,5 @@ import {
   window.resolve_local_file_url = tauriBridge.resolveLocalFileUrl;
   window.get_media_proxy_url = tauriBridge.getMediaProxyUrl;
   window.getMediaProxyUrl = getMediaProxyUrl;
+  window.getImageProxyUrl = getImageProxyUrl;
 })();
