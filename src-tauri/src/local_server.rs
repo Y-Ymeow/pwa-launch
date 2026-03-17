@@ -286,9 +286,9 @@ async fn handle_proxy_request(
     
     // 不应该转发的 headers（hop-by-hop 或浏览器自动添加的）
     let hop_by_hop_headers: std::collections::HashSet<&str> = [
-        "host", "connection", "keep-alive", "proxy-authenticate", 
+        "host", "connection", "keep-alive", "proxy-authenticate",
         "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade",
-        "sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site", "sec-ch-ua", 
+        "sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site", "sec-ch-ua",
         "sec-ch-ua-mobile", "sec-ch-ua-platform", "x-request-key",
     ].iter().cloned().collect();
     
