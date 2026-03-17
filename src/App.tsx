@@ -202,16 +202,6 @@ function App() {
         const { requestId, url, method, headers, body, isMedia, isXHR } =
           event.data;
         let requestBody = body;
-
-        // 只有看起来像 JSON 才尝试解析
-        if (body) {
-          try {
-            requestBody = JSON.parse(body);
-          } catch (e) {
-            // 解析失败，保持原样（可能是 form data）
-            requestBody = body;
-          }
-        }
         console.log("[App] Proxy request:", {
           requestId,
           url,
