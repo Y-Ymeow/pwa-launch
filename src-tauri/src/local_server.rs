@@ -17,7 +17,8 @@ const LOCAL_SERVER_PORT: u16 = 19315;
 struct ProxyRequest {
     target: String,
     method: Option<String>,
-    headers: Option<HashMap<String, String>>,
+    // 使用 serde_json::Value 来接受任意类型的 header 值（前端可能发送数字、布尔等）
+    headers: Option<HashMap<String, serde_json::Value>>,
     body: Option<String>,
 }
 
@@ -67,11 +68,11 @@ pub async fn start_local_server(
             }
             
             // 从查询参数中提取 header_ 开头的自定义 headers
-            let mut custom_headers = HashMap::new();
+            let mut custom_headers: HashMap<String, serde_json::Value> = HashMap::new();
             for (key, value) in &query {
                 if key.starts_with("header_") {
                     let header_name = key.trim_start_matches("header_");
-                    custom_headers.insert(header_name.to_string(), value.clone());
+                    custom_headers.insert(header_name.to_string(), serde_json::Value::String(value.clone()));
                 }
             }
             
@@ -83,7 +84,7 @@ pub async fn start_local_server(
                             if let Some(host) = url.host_str() {
                                 let referer = format!("{}://{}", url.scheme(), host);
                                 log::info!("[LocalServer] Auto-set Referer: {}", referer);
-                                custom_headers.insert("Referer".to_string(), referer);
+                                custom_headers.insert("Referer".to_string(), serde_json::Value::String(referer));
                             }
                         }
                     }
@@ -127,11 +128,11 @@ pub async fn start_local_server(
             }
             
             // 从查询参数中提取 header_ 开头的自定义 headers
-            let mut custom_headers = HashMap::new();
+            let mut custom_headers: HashMap<String, serde_json::Value> = HashMap::new();
             for (key, value) in &query {
                 if key.starts_with("header_") {
                     let header_name = key.trim_start_matches("header_");
-                    custom_headers.insert(header_name.to_string(), value.clone());
+                    custom_headers.insert(header_name.to_string(), serde_json::Value::String(value.clone()));
                 }
             }
             
@@ -143,7 +144,7 @@ pub async fn start_local_server(
                             if let Some(host) = url.host_str() {
                                 let referer = format!("{}://{}", url.scheme(), host);
                                 log::info!("[LocalServer] Auto-set Referer: {}", referer);
-                                custom_headers.insert("Referer".to_string(), referer);
+                                custom_headers.insert("Referer".to_string(), serde_json::Value::String(referer));
                             }
                         }
                     }
@@ -355,11 +356,19 @@ async fn handle_proxy_request(
                 continue;
             }
 
+            // 将 serde_json::Value 转换为字符串
+            let value_str = match value {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Number(n) => n.to_string(),
+                serde_json::Value::Bool(b) => b.to_string(),
+                _ => value.to_string(),
+            };
+
             // Range 头特殊处理，支持音频/视频流
             if key_lower == "range" {
-                log::info!("[LocalServer] Adding Range header for streaming: {} = {}", key, value);
+                log::info!("[LocalServer] Adding Range header for streaming: {} = {}", key, value_str);
             }
-            request_builder = request_builder.header(key, value);
+            request_builder = request_builder.header(key, value_str);
             added_headers.insert(key_lower);
         }
 
@@ -387,7 +396,7 @@ async fn handle_proxy_request(
             .and_then(|h| {
                 h.iter()
                     .find(|(k, _)| k.to_lowercase() == "content-type")
-                    .map(|(_, v)| v.to_lowercase())
+                    .map(|(_, v)| v.as_str().map(|s| s.to_lowercase()).unwrap_or_default())
             });
         
         log::info!("[LocalServer] Request content-type: {}", content_type.as_ref().map_or("unknown", |v| v));
