@@ -28,10 +28,25 @@ pub async fn start_local_server(
     // POST 方式供前端 JS 使用
     let proxy_route_post = warp::path!("api" / "proxy")
         .and(warp::post())
-        .and(warp::body::json())
+        .and(warp::body::bytes())
         .and(warp::filters::header::headers_cloned())
-        .and_then(|req: ProxyRequest, headers: warp::http::HeaderMap| async move {
-            handle_proxy_request(req, headers, false).await
+        .and_then(|body: bytes::Bytes, headers: warp::http::HeaderMap| async move {
+            // 手动解析 JSON，避免 warp::body::json() 自动返回 400 错误（没有 CORS 头）
+            let req: ProxyRequest = match serde_json::from_slice(&body) {
+                Ok(r) => r,
+                Err(e) => {
+                    log::error!("[LocalServer] Failed to parse JSON: {}", e);
+                    let response: Response<Body> = Response::builder()
+                        .status(400)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Content-Type", "application/json")
+                        .body(Body::from(format!("{{\"error\": \"Invalid JSON: {}\"}}", e)))
+                        .unwrap();
+                    return Ok::<Box<dyn Reply>, Infallible>(Box::new(response));
+                }
+            };
+            let result = handle_proxy_request(req, headers, false).await;
+            Ok::<Box<dyn Reply>, Infallible>(Box::new(result))
         });
     
     // GET 方式供 <img> 等标签直接使用
@@ -148,10 +163,25 @@ pub async fn start_local_server(
     // POST 方式供前端 JS 使用
     let media_route_post = warp::path!("media" / "proxy")
         .and(warp::post())
-        .and(warp::body::json())
+        .and(warp::body::bytes())
         .and(warp::filters::header::headers_cloned())
-        .and_then(|req: ProxyRequest, headers: warp::http::HeaderMap| async move {
-            handle_proxy_request(req, headers, true).await
+        .and_then(|body: bytes::Bytes, headers: warp::http::HeaderMap| async move {
+            // 手动解析 JSON，避免 warp::body::json() 自动返回 400 错误（没有 CORS 头）
+            let req: ProxyRequest = match serde_json::from_slice(&body) {
+                Ok(r) => r,
+                Err(e) => {
+                    log::error!("[LocalServer] Failed to parse JSON: {}", e);
+                    let response: Response<Body> = Response::builder()
+                        .status(400)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Content-Type", "application/json")
+                        .body(Body::from(format!("{{\"error\": \"Invalid JSON: {}\"}}", e)))
+                        .unwrap();
+                    return Ok::<Box<dyn Reply>, Infallible>(Box::new(response));
+                }
+            };
+            let result = handle_proxy_request(req, headers, true).await;
+            Ok::<Box<dyn Reply>, Infallible>(Box::new(result))
         });
 
     // OPTIONS 预检路由 - 匹配所有路径
