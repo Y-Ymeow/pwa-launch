@@ -19,7 +19,8 @@ pub const INJECT_BROWSER_UI: &str = r#"
     // 使用 appdata:// 协议访问全局数据（Android 需要用 http://appdata.localhost）
     // 由于 User-Agent 可能被修改，在 loadData 中动态检测
     let DATA_API_URL = 'appdata://localhost';
-    
+    const vh = window.innerHeight * 0.01;
+    document.documentElement.style.setProperty('--vh', `${vh}px`);
     // 从 KV 加载数据（使用与 App.tsx 相同的 key）
     async function loadData() {
         try {
@@ -276,7 +277,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
                 .panel-overlay.show { display: block !important; }
                 .browser-panel {
                     position: fixed !important; top: ${barHeight} !important; left: 0 !important; right: 0 !important;
-                    max-height: 70vh !important; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%) !important;
+                    max-height: calc(var(--vh) * 70) !important; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%) !important;
                     border-bottom: 1px solid rgba(255,255,255,0.1) !important; z-index: 2147483647 !important;
                     display: none !important; flex-direction: column !important; pointer-events: auto !important;
                     box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
@@ -293,7 +294,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
                 }
                 .panel-close:hover { color: white !important; }
                 .panel-content {
-                    overflow-y: auto !important; max-height: calc(70vh - 50px) !important;
+                    overflow-y: auto !important; max-height: calc(var(--vh) * 70 - 50px) !important;
                 }
                 .panel-item {
                     display: flex !important; align-items: center !important; gap: 10px !important;
@@ -331,7 +332,7 @@ pub const INJECT_BROWSER_UI: &str = r#"
                 .browser-bar.hidden ~ .browser-panel { display: none !important; }
                 /* 工具栏位置切换 */
                 .browser-bar.position-bottom {
-                    position: fixed !important; bottom: 0 !important; top: auto !important;
+                    position: fixed !important; top: auto !important;bottom: 0 !important;
                     border-top: 1px solid rgba(255,255,255,0.1) !important;
                     border-bottom: none !important;
                 }
@@ -459,34 +460,24 @@ pub const INJECT_BROWSER_UI: &str = r#"
             if (isBarVisible) {
                 els.bar.classList.remove('hidden');
                 els.floatBtn.style.display = 'none';
-                document.body.style.paddingTop = barPosition === 'top' ? (isMobile() ? 48 : 52) : 0;
-                document.body.style.paddingBottom = barPosition === 'bottom' ? (isMobile() ? 48 : 52) : 0;
-                document.body.style.position = 'relative';
-                if (barPosition === 'top') {
-                    document.body.classList.add('shadow-bar');
-                } else {
-                    document.body.classList.remove('shadow-bar');
-                }
-                document.body.style.minHeight =  barPosition === 'top' ? 'calc(100vh - 52px)': '100vh';
-                document.body.append('<div style="height: 52px;width: 100%;"></div>');
-                
+           
                 if (barPosition === 'bottom') {
                     els.bar.classList.add('position-bottom');
                     els.floatBtn.style.top = '10px';
                     els.floatBtn.style.bottom = 'auto';
+                    document.body.style.transform = "";
                 } else {
+                    document.body.style.transform = "translateY(52px)";
                     els.bar.classList.remove('position-bottom');
-                    els.floatBtn.style.top = 'auto';
-                    els.floatBtn.style.bottom = '10px';
+                    els.floatBtn.style.top = 'calc(var(--vh) * 100)';
+                    els.floatBtn.style.bottom = 'auto';
                 }
             } else {
                 els.bar.classList.add('hidden');
                 els.floatBtn.style.display = 'flex';
-                document.body.classList.remove('shadow-bar');
-                document.body.style.paddingTop = '0';
-                document.body.style.paddingBottom = '0';
-                document.body.style.position = 'static';
-                document.body.style.minHeight = '100vh';
+                document.body.style.transform = "";
+                document.documentElement.style.paddingBottom = '0';
+                document.documentElement.style.position = 'static';
             }
         }
         
