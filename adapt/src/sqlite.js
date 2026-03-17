@@ -1,6 +1,6 @@
 /**
  * SQLite EAV Storage - 替代 IndexedDB 的灵活实现
- * 
+ *
  * 使用 EAV（Entity-Attribute-Value）模型：
  * - 不需要创建物理表
  * - 支持复杂查询（WHERE、JOIN、BETWEEN、ORDER BY）
@@ -13,7 +13,7 @@
  * @param {string} pwaId - PWA ID（可选，由 App.tsx 自动注入）
  * @param {string} dbName - 数据库名称（默认 'default'）
  */
-export function createEAVStorage(bridge, pwaId = null, dbName = 'default') {
+export function createEAVStorage(bridge, pwaId = null, dbName = "default") {
   return {
     pwaId: pwaId,
     dbName: dbName,
@@ -144,31 +144,31 @@ export function createEAVStorage(bridge, pwaId = null, dbName = 'default') {
 
     /**
      * 简单的键值存储（兼容 localStorage 风格）
-     * @param {string} key 
-     * @param {any} value 
+     * @param {string} key
+     * @param {any} value
      * @returns {Promise<boolean>}
      */
     async setItem(key, value) {
-      return this.upsert('kv', key, { value });
+      return this.upsert("kv", key, { value });
     },
 
     /**
      * 获取键值
-     * @param {string} key 
+     * @param {string} key
      * @returns {Promise<any>}
      */
     async getItem(key) {
-      const record = await this.findOne('kv', key);
+      const record = await this.findOne("kv", key);
       return record?.data?.value ?? null;
     },
 
     /**
      * 删除键值
-     * @param {string} key 
+     * @param {string} key
      * @returns {Promise<boolean>}
      */
     async removeItem(key) {
-      return this.delete('kv', key);
+      return this.delete("kv", key);
     },
 
     /**
@@ -176,8 +176,8 @@ export function createEAVStorage(bridge, pwaId = null, dbName = 'default') {
      * @returns {Promise<string[]>}
      */
     async keys() {
-      const records = await this.find('kv');
-      return records.map(r => r.dataId);
+      const records = await this.find("kv");
+      return records.map((r) => r.dataId);
     },
 
     /**
@@ -185,7 +185,7 @@ export function createEAVStorage(bridge, pwaId = null, dbName = 'default') {
      * @returns {Promise<boolean>}
      */
     async clearAll() {
-      return this.clear('kv');
+      return this.clear("kv");
     },
   };
 }
@@ -196,7 +196,7 @@ export function createEAVStorage(bridge, pwaId = null, dbName = 'default') {
  */
 export function createSQLiteStorage(bridge) {
   const storage = createEAVStorage(bridge);
-  
+
   return {
     async setItem(key, value) {
       return storage.setItem(key, value);
@@ -222,10 +222,14 @@ export function createSQLiteStorage(bridge) {
  */
 export function createSQLiteTable(bridge) {
   const storage = createEAVStorage(bridge);
-  
+
   return {
-    async createTable(table) { return true; }, // EAV 不需要创建表
-    async dropTable(table) { return storage.clear(table); },
+    async createTable(table) {
+      return true;
+    }, // EAV 不需要创建表
+    async dropTable(table) {
+      return storage.clear(table);
+    },
     async setItem(table, key, value) {
       return storage.upsert(table, key, { value });
     },
@@ -238,7 +242,7 @@ export function createSQLiteTable(bridge) {
     },
     async keys(table) {
       const records = await storage.find(table);
-      return records.map(r => r.dataId);
+      return records.map((r) => r.dataId);
     },
     async clear(table) {
       return storage.clear(table);
@@ -247,28 +251,47 @@ export function createSQLiteTable(bridge) {
 }
 
 /**
- * 劫持 localStorage 使用 SQLite
+ * 劫持 localStorage 使用 SQLite KV
  * @param {Object} bridge - Tauri 桥接对象
  */
 export function hijackLocalStorage(bridge) {
-  const storage = createEAVStorage(bridge);
-
-  // 覆盖 localStorage 方法
+  // 使用简单的 KV 命令（appId 由 App.tsx 自动注入）
   Object.defineProperty(window, "localStorage", {
     value: {
-      getItem: (key) => storage.getItem(key),
-      setItem: (key, value) => storage.setItem(key, value),
-      removeItem: (key) => storage.removeItem(key),
-      clear: () => storage.clearAll(),
-      key: (index) => storage.keys().then(keys => keys[index] || null),
+      getItem: async (key) => {
+        const result = await bridge.invoke("kv_get", { key });
+        return result.success ? result.data : null;
+      },
+      setItem: async (key, value) => {
+        await bridge.invoke("kv_set", { key, value: String(value) });
+      },
+      removeItem: async (key) => {
+        await bridge.invoke("kv_remove", { key });
+      },
+      clear: async () => {
+        await bridge.invoke("kv_clear", {});
+      },
+      key: async (index) => {
+        const result = await bridge.invoke("kv_get_all", {});
+        if (result.success && result.data) {
+          const keys = Object.keys(result.data);
+          return keys[index] || null;
+        }
+        return null;
+      },
       get length() {
-        return storage.keys().then(keys => keys.length);
+        return (async () => {
+          const result = await bridge.invoke("kv_get_all", {});
+          return result.success && result.data
+            ? Object.keys(result.data).length
+            : 0;
+        })();
       },
     },
     writable: false,
   });
 
-  console.log("[Adapt] localStorage hijacked with SQLite EAV");
+  console.log("[Adapt] localStorage hijacked with SQLite KV");
 }
 
 /**

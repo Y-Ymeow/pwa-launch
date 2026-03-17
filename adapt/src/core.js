@@ -57,13 +57,21 @@ export function createBridge() {
     },
 
     async invoke(cmd, payload = {}) {
-      // 直接使用父窗口的 Tauri 能力
-      return new Promise((resolve, reject) => {
-        window.parent.postMessage({ type: "ADAPT_INVOKE", cmd, payload }, "*");
+      // 生成唯一请求ID，用于匹配并发请求的响应
+      const requestId = generateId();
 
-        // 简单的 one-time 监听
+      return new Promise((resolve, reject) => {
+        window.parent.postMessage(
+          { type: "ADAPT_INVOKE", cmd, payload, requestId },
+          "*",
+        );
+
+        // 使用 requestId 匹配响应，避免并发请求错乱
         const handler = (e) => {
-          if (e.data?.type === "ADAPT_RESULT" && e.data.cmd === cmd) {
+          if (
+            e.data?.type === "ADAPT_RESULT" &&
+            e.data.requestId === requestId
+          ) {
             window.removeEventListener("message", handler);
             if (e.data.error) {
               reject(new Error(e.data.error));

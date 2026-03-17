@@ -286,11 +286,11 @@ import { createSQLiteStorage, hijackLocalStorage as hijackLocalStorageSQLite, hi
 
   // 初始化
   tauriBridge.init().then(() => {
-    // 劫持 LocalStorage（使用旧版存储，如需使用 SQLite 后端请改为：hijackLocalStorageSQLite(bridge)）
-    hackLocalStorage(bridge);
+    // 劫持 LocalStorage（使用 SQLite 后端）
+    hijackLocalStorageSQLite(bridge);
 
-    // 可选：使用 SQLite 替代 IndexedDB（如需启用请取消下面注释）
-    // hijackIndexedDBSQLite(bridge);
+    // 劫持 IndexedDB（使用 SQLite 后端）
+    hijackIndexedDBSQLite(bridge);
 
     // 初始化应用缓存
     initAppCache(tauriBridge);

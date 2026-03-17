@@ -20,6 +20,8 @@ struct ProxyRequest {
     // 使用 serde_json::Value 来接受任意类型的 header 值（前端可能发送数字、布尔等）
     headers: Option<HashMap<String, serde_json::Value>>,
     body: Option<String>,
+    #[serde(default)]
+    is_xhr: bool,
 }
 
 pub async fn start_local_server(
@@ -96,6 +98,7 @@ pub async fn start_local_server(
                 method: Some("GET".to_string()),
                 headers: if custom_headers.is_empty() { None } else { Some(custom_headers) },
                 body: None,
+                is_xhr: false,
             };
             let result = handle_proxy_request(req, headers, false).await;
             Ok::<Box<dyn Reply>, Infallible>(Box::new(result))
@@ -156,6 +159,7 @@ pub async fn start_local_server(
                 method: Some("GET".to_string()),
                 headers: if custom_headers.is_empty() { None } else { Some(custom_headers) },
                 body: None,
+                is_xhr: false,
             };
             let result = handle_proxy_request(req, headers, true).await;
             Ok::<Box<dyn Reply>, Infallible>(Box::new(result))
@@ -297,7 +301,9 @@ async fn handle_proxy_request(
     };
 
     let method_str = req.method.unwrap_or_else(|| "GET".to_string());
-    let method = match method_str.parse::<reqwest::Method>() {
+    // 确保 HTTP 方法大写（某些服务器严格检查）
+    let method_str_upper = method_str.to_uppercase();
+    let method = match method_str_upper.parse::<reqwest::Method>() {
         Ok(m) => m,
         Err(e) => {
             log::error!("[LocalServer] Invalid HTTP method '{}': {}", method_str, e);
@@ -311,6 +317,8 @@ async fn handle_proxy_request(
     };
     
     log::info!("[LocalServer] Building request: {} {}", method, req.target);
+    log::info!("[LocalServer] PWA headers: {:?}", req.headers);
+    log::info!("[LocalServer] Body length: {:?}", req.body.as_ref().map(|b| b.len()));
     let mut request_builder = client.request(method, &req.target);
 
     // 从 HTTP 请求中复制 headers（只复制安全的 headers，Referer/User-Agent 等敏感头由 PWA 提供）
@@ -411,7 +419,9 @@ async fn handle_proxy_request(
                 log::info!("[LocalServer] Decoded form-urlencoded body: {}", body);
             }
         }
-        request_builder = request_builder.body(body);
+        
+        request_builder = request_builder.body(body.clone());
+        log::info!("[LocalServer] Final body (first 200 chars): {}", &body[..body.len().min(200)]);
     }
 
     // 自动添加 Cookies（直接查数据库）

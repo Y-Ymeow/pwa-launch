@@ -29,26 +29,36 @@ function App() {
 
   // 浏览器状态
   const [browserUrl, setBrowserUrl] = useState("");
-  const [browserHistory, setBrowserHistory] = useState<BrowserHistoryItem[]>([]);
-  const [browserBookmarks, setBrowserBookmarks] = useState<BrowserBookmarkItem[]>([]);
+  const [browserHistory, setBrowserHistory] = useState<BrowserHistoryItem[]>(
+    [],
+  );
+  const [browserBookmarks, setBrowserBookmarks] = useState<
+    BrowserBookmarkItem[]
+  >([]);
   const [browserDataLoaded, setBrowserDataLoaded] = useState(false);
 
   // 从 KV 加载浏览器数据
   useEffect(() => {
     const loadBrowserData = async () => {
       try {
-        const historyRes = await invoke<CommandResponse<string | null>>("kv_get", {
-          appId: KV_APP_ID,
-          key: KV_KEY_HISTORY,
-        });
+        const historyRes = await invoke<CommandResponse<string | null>>(
+          "kv_get",
+          {
+            appId: KV_APP_ID,
+            key: KV_KEY_HISTORY,
+          },
+        );
         if (historyRes.success && historyRes.data) {
           setBrowserHistory(JSON.parse(historyRes.data));
         }
 
-        const bookmarksRes = await invoke<CommandResponse<string | null>>("kv_get", {
-          appId: KV_APP_ID,
-          key: KV_KEY_BOOKMARKS,
-        });
+        const bookmarksRes = await invoke<CommandResponse<string | null>>(
+          "kv_get",
+          {
+            appId: KV_APP_ID,
+            key: KV_KEY_BOOKMARKS,
+          },
+        );
         if (bookmarksRes.success && bookmarksRes.data) {
           setBrowserBookmarks(JSON.parse(bookmarksRes.data));
         }
@@ -144,11 +154,14 @@ function App() {
     // 加载屏幕常亮设置
     const loadKeepScreenOn = async () => {
       try {
-        const result = await invoke<{ success: boolean; data: boolean | string | null }>("get_app_config", { key: "keep_screen_on" });
+        const result = await invoke<{
+          success: boolean;
+          data: boolean | string | null;
+        }>("get_app_config", { key: "keep_screen_on" });
         if (result.success && result.data) {
           // 处理字符串或布尔值
           const val = result.data;
-          const enabled = typeof val === 'boolean' ? val : val === 'true';
+          const enabled = typeof val === "boolean" ? val : val === "true";
           if (enabled) {
             await invoke("set_keep_screen_on", { enabled: true });
           }
@@ -186,7 +199,19 @@ function App() {
 
       // 处理 HTTP 代理请求（通过本地服务器，支持并发和流式传输）
       if (event.data?.type === "ADAPT_PROXY_REQUEST") {
-        const { requestId, url, method, headers, body, isMedia } = event.data;
+        const { requestId, url, method, headers, body, isMedia, isXHR } =
+          event.data;
+        let requestBody = body;
+
+        // 只有看起来像 JSON 才尝试解析
+        if (body) {
+          try {
+            requestBody = JSON.parse(body);
+          } catch (e) {
+            // 解析失败，保持原样（可能是 form data）
+            requestBody = body;
+          }
+        }
         console.log("[App] Proxy request:", {
           requestId,
           url,
@@ -195,7 +220,7 @@ function App() {
           hasHeaders: !!headers,
           hasBody: !!body,
           bodyType: typeof body,
-          bodyValue: body,
+          bodyValue: requestBody,
         });
         try {
           // 把所有请求参数放在 body 里传给代理服务器
@@ -208,9 +233,11 @@ function App() {
             target: url,
             method: method || "GET",
             headers: headers || {},
-            body: body || null,
+            body: requestBody || null,
+            isXHR: isXHR || false,
           };
           console.log("[App] Proxy body:", proxyBodyObj);
+
           const proxyBody = JSON.stringify(proxyBodyObj);
 
           // 根据 isMedia 选择路由：媒体请求走 /media/proxy（禁用 gzip），普通请求走 /api/proxy
@@ -230,10 +257,11 @@ function App() {
 
           // 检测是否为二进制响应（图片、音频、视频）
           const contentType = proxyResponse.headers.get("content-type") || "";
-          const isBinary = contentType.startsWith("image/") ||
-                           contentType.startsWith("audio/") ||
-                           contentType.startsWith("video/") ||
-                           contentType === "application/octet-stream";
+          const isBinary =
+            contentType.startsWith("image/") ||
+            contentType.startsWith("audio/") ||
+            contentType.startsWith("video/") ||
+            contentType === "application/octet-stream";
 
           let responseBody: string;
           if (isBinary) {
@@ -288,7 +316,7 @@ function App() {
       if (!iframe) return;
 
       if (event.data?.type === "ADAPT_INVOKE") {
-        const { cmd, payload } = event.data;
+        const { cmd, payload, requestId } = event.data;
         try {
           // 找到对应的 appId
           const entry = Object.entries(iframesRef.current).find(
@@ -296,10 +324,14 @@ function App() {
           );
           const appId = entry ? entry[0] : null;
 
-          // 为 SQLite 命令自动注入 pwaId
+          // 为 SQLite 和 KV 命令自动注入 appId/pwaId
           let finalPayload = payload;
-          if (appId && cmd.startsWith("sqlite_")) {
-            finalPayload = { ...payload, pwaId: appId };
+          if (appId) {
+            if (cmd.startsWith("sqlite_")) {
+              finalPayload = { ...payload, pwaId: appId };
+            } else if (cmd.startsWith("kv_")) {
+              finalPayload = { ...payload, appId: appId };
+            }
           }
 
           const result = await invoke(cmd, finalPayload);
@@ -307,13 +339,19 @@ function App() {
             {
               type: "ADAPT_RESULT",
               cmd,
+              requestId, // 返回 requestId 以便匹配并发请求
               result: JSON.parse(JSON.stringify(result)),
             },
             "*",
           );
         } catch (error) {
           event.source?.postMessage(
-            { type: "ADAPT_RESULT", cmd, error: String(error) },
+            {
+              type: "ADAPT_RESULT",
+              cmd,
+              requestId, // 返回 requestId 以便匹配并发请求
+              error: String(error),
+            },
             "*",
           );
         }
@@ -716,7 +754,17 @@ function App() {
       />
 
       {viewMode === "apps" && (
-        <div style={{ position: "fixed", bottom: "100px", right: "20px", display: "flex", flexDirection: "column", gap: "16px", zIndex: 1000 }}>
+        <div
+          style={{
+            position: "fixed",
+            bottom: "100px",
+            right: "20px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "16px",
+            zIndex: 1000,
+          }}
+        >
           <button
             onClick={() => setShowAppSettings(true)}
             title="应用设置"

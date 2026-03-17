@@ -13,7 +13,14 @@ const generateRequestId = () =>
 const LOCAL_SERVER_PORT = 19315;
 
 // 通过父窗口代理 HTTP 请求（postMessage -> 父窗口 fetch 本地服务器）
-function proxyViaLocalServer(url, method, headers, body, isMedia = false) {
+function proxyViaLocalServer(
+  url,
+  method,
+  headers,
+  body,
+  isMedia = false,
+  isXHR = false,
+) {
   return new Promise((resolve, reject) => {
     const requestId = generateRequestId();
 
@@ -97,7 +104,7 @@ function proxyViaLocalServer(url, method, headers, body, isMedia = false) {
       }
     }
 
-    // 发送代理请求给父窗口，使用 isMedia 标记来选择路由
+    // 发送代理请求给父窗口，使用 isMedia/isXHR 标记
     window.parent.postMessage(
       {
         type: "ADAPT_PROXY_REQUEST",
@@ -107,6 +114,7 @@ function proxyViaLocalServer(url, method, headers, body, isMedia = false) {
         headers,
         body: bodyString,
         isMedia, // 标记是否为媒体请求
+        isXHR, // 标记是否为 XHR 请求
       },
       "*",
     );
@@ -132,6 +140,7 @@ export function createNetwork(bridge) {
       } else {
         urlStr = input.toString();
       }
+      console.log(options);
 
       // 检测是否是流式请求 (AI SSE/Stream)
       const isStreamRequest =
@@ -192,6 +201,7 @@ export function createNetwork(bridge) {
             mediaHeaders,
             options.body,
             true, // isMedia = true
+            false, // isXHR = false (媒体请求不需要 X-Requested-With)
           );
         }
 
@@ -216,6 +226,8 @@ export function createNetwork(bridge) {
           options.method || "GET",
           headers,
           options.body,
+          false, // isMedia
+          false, // isXHR - 让服务器根据 Accept header 判断
         );
       }
 
@@ -273,7 +285,16 @@ export function setupXHRProxy(tauriBridge) {
     xhr.open = function (method, url, async = true, user, password) {
       requestMethod = method;
       requestUrl = url.toString();
-      return originalOpen(method, url, async, user, password);
+      console.log("create xhr");
+      // 不调用 originalOpen，让 send 完全控制
+      // 设置 readyState 为 OPENED (1)
+      Object.defineProperty(xhr, "readyState", {
+        value: 1,
+        writable: true,
+        configurable: true,
+      });
+      if (xhr.onreadystatechange) xhr.onreadystatechange();
+      return;
     };
 
     xhr.setRequestHeader = function (header, value) {
@@ -300,102 +321,116 @@ export function setupXHRProxy(tauriBridge) {
     xhr.send = async function (body) {
       requestBody = body;
 
+      // 判断是否需要代理（跨域请求）
+      let needProxy = false;
+      let urlObj;
+
       try {
-        const urlObj = new URL(requestUrl, window.location.href);
-        if (urlObj.origin !== window.location.origin) {
-          if (!tauriBridge._ready) {
-            let attempts = 0;
-            while (!tauriBridge._ready && attempts < 50) {
-              await new Promise((resolve) => setTimeout(resolve, 100));
-              attempts++;
-            }
-          }
-
-          try {
-            // 通过父窗口代理
-            const response = await proxyViaLocalServer(
-              requestUrl,
-              requestMethod,
-              requestHeaders,
-              requestBody,
-            );
-
-            const responseType = xhr.responseType || "text";
-            let responseValue;
-            let responseText;
-
-            if (responseType === "arraybuffer") {
-              const buffer = await response.arrayBuffer();
-              responseValue = buffer;
-              responseText = "";
-            } else if (responseType === "blob") {
-              const blob = await response.blob();
-              responseValue = blob;
-              responseText = "";
-            } else if (responseType === "json") {
-              responseText = await response.text();
-              try {
-                responseValue = JSON.parse(responseText);
-              } catch (e) {
-                responseValue = responseText;
-              }
-            } else {
-              responseText = await response.text();
-              responseValue = responseText;
-            }
-
-            responseHeaders = {};
-            response.headers.forEach((value, key) => {
-              responseHeaders[key] = value;
-            });
-
-            console.log("[PWA Adapt] XHR response:", response.status);
-
-            Object.defineProperty(xhr, "status", {
-              value: response.status,
-              writable: false,
-            });
-            Object.defineProperty(xhr, "statusText", {
-              value: response.statusText || "OK",
-              writable: false,
-            });
-            Object.defineProperty(xhr, "responseText", {
-              value: responseText,
-              writable: false,
-            });
-            Object.defineProperty(xhr, "response", {
-              value: responseValue,
-              writable: false,
-            });
-            Object.defineProperty(xhr, "readyState", {
-              value: 4,
-              writable: false,
-            });
-
-            if (xhr.onreadystatechange) xhr.onreadystatechange();
-            if (xhr.onload) xhr.onload();
-            if (xhr.onloadend) xhr.onloadend();
-
-            return;
-          } catch (err) {
-            Object.defineProperty(xhr, "status", {
-              value: 500,
-              writable: false,
-            });
-            Object.defineProperty(xhr, "readyState", {
-              value: 4,
-              writable: false,
-            });
-            if (xhr.onerror) xhr.onerror(err);
-            if (xhr.onloadend) xhr.onloadend();
-            return;
-          }
-        }
+        urlObj = new URL(requestUrl, window.location.href);
+        needProxy = urlObj.origin !== window.location.origin;
       } catch (e) {
-        console.error(e);
+        // URL 解析失败，直接走原生请求
+        console.error("[PWA Adapt] Invalid URL:", requestUrl, e);
+        return originalSend(body);
       }
 
-      return originalSend(body);
+      // 同域请求，直接走原生
+      if (!needProxy) {
+        return originalSend(body);
+      }
+
+      // 跨域请求，必须走代理
+      console.log("[PWA Adapt] XHR proxy:", requestUrl);
+
+      // 等待 bridge 就绪
+      if (!tauriBridge._ready) {
+        let attempts = 0;
+        while (!tauriBridge._ready && attempts < 50) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          attempts++;
+        }
+        if (!tauriBridge._ready) {
+          console.error("[PWA Adapt] Bridge not ready");
+          Object.defineProperty(xhr, "status", { value: 0, writable: false });
+          Object.defineProperty(xhr, "readyState", {
+            value: 4,
+            writable: false,
+          });
+          if (xhr.onerror) xhr.onerror(new Error("Bridge not ready"));
+          if (xhr.onloadend) xhr.onloadend();
+          return;
+        }
+      }
+
+      try {
+        // 通过父窗口代理，标记为 XHR 请求
+        const response = await proxyViaLocalServer(
+          requestUrl,
+          requestMethod,
+          requestHeaders,
+          requestBody,
+          false, // isMedia
+          true, // isXHR
+        );
+        const responseType = xhr.responseType || "text";
+        let responseValue;
+        let responseText;
+
+        if (responseType === "arraybuffer") {
+          const buffer = await response.arrayBuffer();
+          responseValue = buffer;
+          responseText = "";
+        } else if (responseType === "blob") {
+          const blob = await response.blob();
+          responseValue = blob;
+          responseText = "";
+        } else if (responseType === "json") {
+          responseText = await response.text();
+          try {
+            responseValue = JSON.parse(responseText);
+          } catch (e) {
+            responseValue = responseText;
+          }
+        } else {
+          responseText = await response.text();
+          responseValue = responseText;
+        }
+
+        responseHeaders = {};
+        response.headers.forEach((value, key) => {
+          responseHeaders[key] = value;
+        });
+
+        console.log("[PWA Adapt] XHR response:", response.status);
+
+        Object.defineProperty(xhr, "status", {
+          value: response.status,
+          writable: false,
+        });
+        Object.defineProperty(xhr, "statusText", {
+          value: response.statusText || "OK",
+          writable: false,
+        });
+        Object.defineProperty(xhr, "responseText", {
+          value: responseText,
+          writable: false,
+        });
+        Object.defineProperty(xhr, "response", {
+          value: responseValue,
+          writable: false,
+        });
+        Object.defineProperty(xhr, "readyState", { value: 4, writable: false });
+
+        if (xhr.onreadystatechange) xhr.onreadystatechange();
+        if (xhr.onload) xhr.onload();
+        if (xhr.onloadend) xhr.onloadend();
+      } catch (err) {
+        console.error("[PWA Adapt] XHR proxy error:", err);
+        Object.defineProperty(xhr, "status", { value: 0, writable: false });
+        Object.defineProperty(xhr, "readyState", { value: 4, writable: false });
+        if (xhr.onerror) xhr.onerror(err);
+        if (xhr.onloadend) xhr.onloadend();
+      }
     };
 
     return xhr;
