@@ -252,13 +252,35 @@ async fn handle_proxy_request(
         }
     }
 
-    let client = client_builder.build().unwrap_or_else(|_| reqwest::Client::new());
+    let client = match client_builder.build() {
+        Ok(c) => c,
+        Err(e) => {
+            log::error!("[LocalServer] Failed to build HTTP client: {}", e);
+            return Ok(Response::builder()
+                .status(500)
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Content-Type", "application/json")
+                .body(Body::from(format!("{{\"error\": \"Failed to build HTTP client: {}\"}}", e)))
+                .unwrap());
+        }
+    };
 
-    let method = req.method.unwrap_or_else(|| "GET".to_string());
-    let mut request_builder = client.request(
-        method.parse().unwrap_or(reqwest::Method::GET),
-        &req.target
-    );
+    let method_str = req.method.unwrap_or_else(|| "GET".to_string());
+    let method = match method_str.parse::<reqwest::Method>() {
+        Ok(m) => m,
+        Err(e) => {
+            log::error!("[LocalServer] Invalid HTTP method '{}': {}", method_str, e);
+            return Ok(Response::builder()
+                .status(400)
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Content-Type", "application/json")
+                .body(Body::from(format!("{{\"error\": \"Invalid HTTP method: {}\"}}", e)))
+                .unwrap());
+        }
+    };
+    
+    log::info!("[LocalServer] Building request: {} {}", method, req.target);
+    let mut request_builder = client.request(method, &req.target);
 
     // 从 HTTP 请求中复制 headers（只复制安全的 headers，Referer/User-Agent 等敏感头由 PWA 提供）
     for (key, value) in &http_headers {
