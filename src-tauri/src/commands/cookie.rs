@@ -304,3 +304,83 @@ pub async fn get_proxy_cookies(
     // 本地服务器已移除，此命令不再使用
     Ok(CommandResponse::success(serde_json::json!({})))
 }
+
+/// 使用 JNI 从 Android WebView 获取 Cookies（包括 HttpOnly）
+#[tauri::command]
+pub async fn get_android_webview_cookies(url: String) -> Result<CommandResponse<String>, String> {
+    #[cfg(target_os = "android")]
+    {
+        use jni::objects::JString;
+        use jni::signature::JavaType;
+        use jni::strings::JavaStr;
+        
+        let url_for_log = url.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            let ctx = ndk_context::android_context();
+            let vm_ptr = ctx.vm();
+            
+            let vm: jni::JavaVM = unsafe { jni::JavaVM::from_raw(vm_ptr as _) }
+                .map_err(|e| format!("Failed to get JavaVM: {:?}", e))?;
+            let mut env = vm.attach_current_thread()
+                .map_err(|e| format!("Failed to attach thread: {:?}", e))?;
+            
+            // 获取 CookieManager 类
+            let cookie_manager_class = env.find_class("android/webkit/CookieManager")
+                .map_err(|e| format!("Failed to find CookieManager class: {:?}", e))?;
+            
+            // 调用 CookieManager.getInstance()
+            let instance = env.call_static_method(
+                &cookie_manager_class,
+                "getInstance",
+                "()Landroid/webkit/CookieManager;",
+                &[],
+            ).map_err(|e| format!("Failed to get CookieManager instance: {:?}", e))?;
+            
+            let cookie_manager = instance.l()
+                .map_err(|e| format!("Failed to convert to object: {:?}", e))?;
+            
+            // 调用 getCookie(url)
+            let url_jstring = env.new_string(&url)
+                .map_err(|e| format!("Failed to create Java string: {:?}", e))?;
+            
+            let cookie_result = env.call_method(
+                &cookie_manager,
+                "getCookie",
+                "(Ljava/lang/String;)Ljava/lang/String;",
+                &[(&url_jstring).into()],
+            ).map_err(|e| format!("Failed to get cookie: {:?}", e))?;
+            
+            // 将 Java 字符串转换为 Rust 字符串
+            let cookie_jstring: JString = cookie_result.l()
+                .map_err(|e| format!("Failed to convert result to string: {:?}", e))?
+                .into();
+            
+            let cookie_str = if cookie_jstring.is_null() {
+                String::new()
+            } else {
+                let java_str = JavaStr::from_env(&env, &cookie_jstring)
+                    .map_err(|e| format!("Failed to create JavaStr: {:?}", e))?;
+                java_str.to_string_lossy().to_string()
+            };
+            
+            Ok::<String, String>(cookie_str)
+        }).await.map_err(|e| format!("Task join error: {:?}", e))?;
+        
+        match result {
+            Ok(cookies) => {
+                log::info!("[Android Cookies] Got {} bytes of cookies for {}", cookies.len(), url_for_log);
+                Ok(CommandResponse::success(cookies))
+            }
+            Err(e) => {
+                log::error!("[Android Cookies] Failed: {}", e);
+                Err(e)
+            }
+        }
+    }
+    
+    #[cfg(not(target_os = "android"))]
+    {
+        // 非 Android 平台返回空
+        Ok(CommandResponse::success(String::new()))
+    }
+}

@@ -259,61 +259,112 @@ pub fn run() {
                 
                 // 自动获取 cookies（包括 HttpOnly）并保存到数据库
                 let window_clone = window.clone();
+                let url_clone = url.clone();
                 std::thread::spawn(move || {
                     // 解析当前域名
-                    let domain = if let Ok(parsed_url) = url::Url::parse(&url) {
+                    let domain = if let Ok(parsed_url) = url::Url::parse(&url_clone) {
                         parsed_url.host_str().map(|s| s.to_string())
                     } else {
                         None
                     };
                     
                     if let Some(domain) = domain {
-                        match window_clone.cookies() {
-                            Ok(cookies) => {
-                                // 只过滤出当前域名的 cookies
-                                let domain_cookies: Vec<_> = cookies.iter()
-                                    .filter(|c| {
-                                        // 检查 cookie 的 domain 是否匹配当前域名
-                                        let cookie_domain = c.domain().unwrap_or("");
-                                        cookie_domain == domain || 
-                                        cookie_domain == format!(". {}", domain).trim_start() ||
-                                        domain.ends_with(cookie_domain.strip_prefix('.').unwrap_or(cookie_domain))
-                                    })
-                                    .collect();
+                        // Android 使用 JNI 获取 cookies
+                        #[cfg(target_os = "android")]
+                        let cookie_result = {
+                            use jni::objects::JString;
+                            use jni::strings::JavaStr;
+                            
+                            let ctx = ndk_context::android_context();
+                            let vm_ptr = ctx.vm();
+                            
+                            let vm = unsafe { jni::JavaVM::from_raw(vm_ptr as _) };
+                            if let Ok(vm) = vm {
+                                if let Ok(mut env) = vm.attach_current_thread() {
+                                    if let Ok(cookie_manager_class) = env.find_class("android/webkit/CookieManager") {
+                                        if let Ok(instance) = env.call_static_method(
+                                            &cookie_manager_class,
+                                            "getInstance",
+                                            "()Landroid/webkit/CookieManager;",
+                                            &[],
+                                        ) {
+                                            if let Ok(cookie_manager) = instance.l() {
+                                                if let Ok(url_jstring) = env.new_string(&url_clone) {
+                                                    if let Ok(cookie_result) = env.call_method(
+                                                        &cookie_manager,
+                                                        "getCookie",
+                                                        "(Ljava/lang/String;)Ljava/lang/String;",
+                                                        &[(&url_jstring).into()],
+                                                    ) {
+                                                        if let Ok(cookie_jstring) = cookie_result.l() {
+                                                            let cookie_jstring: JString = cookie_jstring.into();
+                                                            if !cookie_jstring.is_null() {
+                                                                if let Ok(java_str) = JavaStr::from_env(&env, &cookie_jstring) {
+                                                                    Some(java_str.to_string_lossy().to_string())
+                                                                } else { None }
+                                                            } else { Some(String::new()) }
+                                                        } else { None }
+                                                    } else { None }
+                                                } else { None }
+                                            } else { None }
+                                        } else { None }
+                                    } else { None }
+                                } else { None }
+                            } else { None }
+                        };
+                        
+                        // 桌面端使用 window.cookies()
+                        #[cfg(not(target_os = "android"))]
+                        let cookie_result: Option<String> = {
+                            match window_clone.cookies() {
+                                Ok(cookies) => {
+                                    let domain_cookies: Vec<_> = cookies.iter()
+                                        .filter(|c| {
+                                            let cookie_domain = c.domain().unwrap_or("");
+                                            cookie_domain == domain || 
+                                            cookie_domain == format!(". {}", domain).trim_start() ||
+                                            domain.ends_with(cookie_domain.strip_prefix('.').unwrap_or(cookie_domain))
+                                        })
+                                        .collect();
+                                    
+                                    if !domain_cookies.is_empty() {
+                                        Some(domain_cookies.iter()
+                                            .map(|c| format!("{}={}", c.name(), c.value()))
+                                            .collect::<Vec<_>>()
+                                            .join("; "))
+                                    } else { Some(String::new()) }
+                                }
+                                Err(_) => None
+                            }
+                        };
+                        
+                        if let Some(cookie_str) = cookie_result {
+                            if !cookie_str.is_empty() {
+                                log::info!("[Auto Cookie] Got cookies for {}", domain);
                                 
-                                if !domain_cookies.is_empty() {
-                                    let cookie_str = domain_cookies.iter()
-                                        .map(|c| format!("{}={}", c.name(), c.value()))
-                                        .collect::<Vec<_>>()
-                                        .join("; ");
-                                    
-                                    log::info!("[Auto Cookie] Got {} cookies for {}", domain_cookies.len(), domain);
-                                    
-                                    // 保存到数据库
-                                    if let Some(db_mutex) = DB_CONN.get() {
-                                        if let Ok(conn) = db_mutex.lock() {
-                                            // 先清除该域名的旧 cookies
-                                            if let Err(e) = conn.execute(
-                                                "DELETE FROM cookies WHERE app_id = ?1 AND domain = ?2",
-                                                rusqlite::params!["browser", &domain]
-                                            ) {
-                                                log::error!("[Auto Cookie] Failed to clear old cookies: {}", e);
-                                            }
-                                            // 保存新 cookies
-                                            if let Err(e) = db::parse_and_save_cookie_string(&conn, "browser", &domain, &cookie_str) {
-                                                log::error!("[Auto Cookie] Failed to save: {}", e);
-                                            } else {
-                                                log::info!("[Auto Cookie] Saved {} cookies for {}", domain_cookies.len(), domain);
-                                            }
+                                // 保存到数据库
+                                if let Some(db_mutex) = DB_CONN.get() {
+                                    if let Ok(conn) = db_mutex.lock() {
+                                        // 先清除该域名的旧 cookies
+                                        if let Err(e) = conn.execute(
+                                            "DELETE FROM cookies WHERE app_id = ?1 AND domain = ?2",
+                                            rusqlite::params!["browser", &domain]
+                                        ) {
+                                            log::error!("[Auto Cookie] Failed to clear old cookies: {}", e);
+                                        }
+                                        // 保存新 cookies
+                                        if let Err(e) = db::parse_and_save_cookie_string(&conn, "browser", &domain, &cookie_str) {
+                                            log::error!("[Auto Cookie] Failed to save: {}", e);
+                                        } else {
+                                            log::info!("[Auto Cookie] Saved cookies for {}", domain);
                                         }
                                     }
-                                } else {
-                                    log::debug!("[Auto Cookie] No cookies for domain: {}", domain);
                                 }
+                            } else {
+                                log::debug!("[Auto Cookie] No cookies for domain: {}", domain);
                             }
-                            Err(e) => {
-                                log::error!("[Auto Cookie] Failed to get cookies: {}", e);
-                            }
+                        } else {
+                            log::error!("[Auto Cookie] Failed to get cookies for domain: {}", domain);
                         }
                     }
                 });
