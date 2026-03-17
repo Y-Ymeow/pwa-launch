@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-clear-webview-cache"
+description = "Allows clearing WebView HTTP cache"
+commands.allow = ["clear_webview_cache"]

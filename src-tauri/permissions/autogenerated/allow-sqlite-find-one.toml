@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-sqlite-find-one"
+description = "允许 EAV findOne 查询"
+commands.allow = ["sqlite_find_one"]

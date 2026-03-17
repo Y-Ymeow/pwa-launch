@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-sqlite-create-table"
+description = "Allows creating dynamic table in SQLite"
+commands.allow = ["sqlite_create_table"]

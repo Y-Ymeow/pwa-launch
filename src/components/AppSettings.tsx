@@ -7,6 +7,14 @@ interface AppSettingsProps {
   showMessage: (type: "success" | "error", text: string) => void;
 }
 
+interface CacheStats {
+  total_entries: number;
+  valid_entries: number;
+  expired_entries: number;
+  total_size_bytes: number;
+  total_size_mb: number;
+}
+
 const PRESET_USER_AGENTS = [
   {
     name: "使用系统默认 (推荐)",
@@ -31,19 +39,27 @@ const PRESET_USER_AGENTS = [
 ];
 
 export function AppSettings({ show, onClose, showMessage }: AppSettingsProps) {
-  const [activeTab, setActiveTab] = useState<"general" | "network">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "network" | "storage">("general");
 
   // User-Agent 设置（默认为空，使用系统默认）
   const [userAgent, setUserAgent] = useState("");
   // 屏幕常亮设置
   const [keepScreenOn, setKeepScreenOn] = useState(false);
   const [loading, setLoading] = useState(false);
+  
+  // 缓存统计
+  const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
+  const [clearingCache, setClearingCache] = useState(false);
+  const [clearingWebviewCache, setClearingWebviewCache] = useState(false);
 
   useEffect(() => {
     if (show) {
       loadSettings();
+      if (activeTab === "storage") {
+        loadCacheStats();
+      }
     }
-  }, [show]);
+  }, [show, activeTab]);
 
   const loadSettings = async () => {
     try {
@@ -59,6 +75,61 @@ export function AppSettings({ show, onClose, showMessage }: AppSettingsProps) {
       }
     } catch (error) {
       console.error("Failed to load settings:", error);
+    }
+  };
+
+  const loadCacheStats = async () => {
+    try {
+      // 获取当前运行的 PWA 的 app_id
+      const runningPwas = await invoke<{ success: boolean; data: string[] }>("list_running_pwas", {});
+      if (runningPwas.success && runningPwas.data.length > 0) {
+        const appId = runningPwas.data[0].replace("pwa_", "");
+        const result = await invoke<{ success: boolean; data: CacheStats | null }>("cache_stats", { appId });
+        if (result.success && result.data) {
+          setCacheStats(result.data);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load cache stats:", error);
+    }
+  };
+
+  const clearCache = async () => {
+    if (!confirm("确定要清除所有持久化缓存吗？这将删除所有离线存储的数据。")) {
+      return;
+    }
+    
+    setClearingCache(true);
+    try {
+      const runningPwas = await invoke<{ success: boolean; data: string[] }>("list_running_pwas", {});
+      if (runningPwas.success && runningPwas.data.length > 0) {
+        const appId = runningPwas.data[0].replace("pwa_", "");
+        await invoke("cache_clear", { appId });
+        showMessage("success", "缓存已清除");
+        loadCacheStats();
+      } else {
+        showMessage("error", "没有正在运行的应用");
+      }
+    } catch (error) {
+      showMessage("error", `清除缓存失败: ${String(error)}`);
+    } finally {
+      setClearingCache(false);
+    }
+  };
+
+  const clearWebviewCache = async () => {
+    if (!confirm("确定要清除 WebView HTTP 缓存吗？这不会影响持久化缓存，但需要刷新页面才能生效。")) {
+      return;
+    }
+    
+    setClearingWebviewCache(true);
+    try {
+      await invoke("clear_webview_cache", {});
+      showMessage("success", "WebView 缓存已清除，请刷新页面");
+    } catch (error) {
+      showMessage("error", `清除 WebView 缓存失败: ${String(error)}`);
+    } finally {
+      setClearingWebviewCache(false);
     }
   };
 
@@ -169,6 +240,20 @@ export function AppSettings({ show, onClose, showMessage }: AppSettingsProps) {
             }}
           >
             网络
+          </button>
+          <button
+            onClick={() => setActiveTab("storage")}
+            style={{
+              padding: "12px 24px",
+              background: activeTab === "storage" ? "rgba(102,126,234,0.3)" : "transparent",
+              border: "none",
+              borderBottom: activeTab === "storage" ? "2px solid #667eea" : "none",
+              color: activeTab === "storage" ? "white" : "rgba(255,255,255,0.6)",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+          >
+            存储
           </button>
         </div>
 
@@ -323,6 +408,138 @@ export function AppSettings({ show, onClose, showMessage }: AppSettingsProps) {
                   地址: http://localhost:19315/api/proxy?url=...<br />
                   用于解决 CORS 跨域问题，自动处理 cookies。
                 </p>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "storage" && (
+            <div>
+              <h4 style={{ color: "white", margin: "0 0 16px 0", fontSize: "16px" }}>
+                💾 持久化缓存
+              </h4>
+              
+              <div
+                style={{
+                  padding: "16px",
+                  background: "rgba(255,255,255,0.05)",
+                  borderRadius: "8px",
+                  marginBottom: "16px",
+                }}
+              >
+                <p style={{ margin: "0 0 12px 0", fontSize: "13px", color: "rgba(255,255,255,0.8)", lineHeight: 1.5 }}>
+                  持久化缓存完全独立于 WebView 缓存系统，存储在应用数据目录中。
+                  除非用户主动清除，否则会一直保留。
+                </p>
+                <p style={{ margin: 0, fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>
+                  PWA 可以使用 <code>__TAURI__.persistentCache</code> API 存储离线数据。
+                </p>
+              </div>
+
+              {cacheStats ? (
+                <div
+                  style={{
+                    padding: "16px",
+                    background: "rgba(102,126,234,0.1)",
+                    borderRadius: "8px",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <h5 style={{ color: "white", margin: "0 0 12px 0", fontSize: "14px" }}>
+                    📊 缓存统计
+                  </h5>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                    <div>
+                      <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>总条目</div>
+                      <div style={{ fontSize: "18px", color: "white", fontWeight: "bold" }}>
+                        {cacheStats.total_entries}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>有效条目</div>
+                      <div style={{ fontSize: "18px", color: "#38ef7d", fontWeight: "bold" }}>
+                        {cacheStats.valid_entries}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>过期条目</div>
+                      <div style={{ fontSize: "18px", color: "#f45c43", fontWeight: "bold" }}>
+                        {cacheStats.expired_entries}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)" }}>总大小</div>
+                      <div style={{ fontSize: "18px", color: "white", fontWeight: "bold" }}>
+                        {cacheStats.total_size_mb.toFixed(2)} MB
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    padding: "16px",
+                    background: "rgba(255,255,255,0.05)",
+                    borderRadius: "8px",
+                    marginBottom: "16px",
+                    textAlign: "center",
+                    color: "rgba(255,255,255,0.5)",
+                  }}
+                >
+                  没有正在运行的应用或暂无缓存数据
+                </div>
+              )}
+
+              <button
+                onClick={clearCache}
+                disabled={clearingCache || !cacheStats}
+                style={{
+                  width: "100%",
+                  padding: "12px",
+                  borderRadius: "8px",
+                  border: "1px solid #f45c43",
+                  background: "transparent",
+                  color: "#f45c43",
+                  cursor: clearingCache || !cacheStats ? "not-allowed" : "pointer",
+                  fontSize: "14px",
+                  opacity: clearingCache || !cacheStats ? 0.5 : 1,
+                  marginBottom: "12px",
+                }}
+              >
+                {clearingCache ? "清除中..." : "🗑️ 清除持久化缓存"}
+              </button>
+
+              <div
+                style={{
+                  padding: "12px",
+                  background: "rgba(255,255,255,0.05)",
+                  borderRadius: "8px",
+                  marginBottom: "12px",
+                }}
+              >
+                <h5 style={{ color: "white", margin: "0 0 8px 0", fontSize: "14px" }}>
+                  🌐 WebView HTTP 缓存
+                </h5>
+                <p style={{ margin: "0 0 12px 0", fontSize: "12px", color: "rgba(255,255,255,0.6)" }}>
+                  清除 WebView 的 HTTP 磁盘缓存（包括图片、CSS、JS 等）。
+                  不会影响持久化缓存，但已打开的页面需要刷新才能生效。
+                </p>
+                <button
+                  onClick={clearWebviewCache}
+                  disabled={clearingWebviewCache}
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    borderRadius: "6px",
+                    border: "1px solid #667eea",
+                    background: "transparent",
+                    color: "#667eea",
+                    cursor: clearingWebviewCache ? "not-allowed" : "pointer",
+                    fontSize: "13px",
+                    opacity: clearingWebviewCache ? 0.5 : 1,
+                  }}
+                >
+                  {clearingWebviewCache ? "清除中..." : "🧹 清除 WebView HTTP 缓存"}
+                </button>
               </div>
             </div>
           )}

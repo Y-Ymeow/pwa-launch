@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-sqlite-count"
+description = "允许 EAV count 统计"
+commands.allow = ["sqlite_count"]

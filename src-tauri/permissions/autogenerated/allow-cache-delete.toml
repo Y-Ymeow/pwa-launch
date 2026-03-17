@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-cache-delete"
+description = "Allows deleting items from persistent cache"
+commands.allow = ["cache_delete"]

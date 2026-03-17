@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-cache-get"
+description = "Allows getting items from persistent cache"
+commands.allow = ["cache_get"]

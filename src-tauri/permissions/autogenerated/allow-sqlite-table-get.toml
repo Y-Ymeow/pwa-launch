@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-sqlite-table-get"
+description = "Allows getting key-value from dynamic table"
+commands.allow = ["sqlite_table_get"]

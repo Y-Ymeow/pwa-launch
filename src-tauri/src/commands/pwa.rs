@@ -55,8 +55,19 @@ pub fn uninstall_pwa(
     _app: AppHandle,
 ) -> Result<CommandResponse<bool>, String> {
     let conn = crate::DB_CONN.get().ok_or("DB not initialized")?.lock().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM apps WHERE id = ?", [app_id])
+    
+    // 删除 apps 表记录
+    conn.execute("DELETE FROM apps WHERE id = ?", [&app_id])
         .map_err(|e| e.to_string())?;
+    
+    // 删除该 PWA 的所有 EAV 数据
+    // 由于外键约束，删除 pwa_data 会自动级联删除 pwa_schema_data
+    conn.execute(
+        "DELETE FROM pwa_data WHERE pwa_id = ?",
+        [&app_id],
+    ).map_err(|e| format!("删除 PWA 数据失败: {}", e))?;
+    
+    log::info!("[PWA] 已卸载应用 {} 并清理所有数据", app_id);
     Ok(CommandResponse::success(true))
 }
 
@@ -236,6 +247,66 @@ pub fn close_pwa_window(
             return Ok(CommandResponse::success(true));
         }
     }
+    Ok(CommandResponse::success(true))
+}
+
+/// 清除 WebView HTTP 缓存（仅 Linux 和 Android）
+#[tauri::command]
+pub async fn clear_webview_cache(
+    app: AppHandle,
+    _window_id: Option<String>,
+) -> Result<CommandResponse<bool>, String> {
+    #[cfg(all(not(mobile), target_os = "linux"))]
+    {
+        log::info!("[WebView] Clear cache requested for Linux");
+        
+        // Linux: 删除 WebKitGTK 缓存目录
+        let app_data_dir = app.path().app_data_dir()
+            .map_err(|e| format!("获取应用数据目录失败: {}", e))?;
+        
+        // WebKitGTK 缓存目录
+        let mut cache_dirs: Vec<std::path::PathBuf> = vec![
+            app_data_dir.join("webkitgtk-cache"),
+        ];
+        if let Some(cache) = dirs::cache_dir() {
+            cache_dirs.push(cache.join("webkit"));
+        }
+        
+        for cache_dir in cache_dirs {
+            if cache_dir.exists() {
+                log::info!("[WebView] Clearing cache directory: {:?}", cache_dir);
+                let _ = std::fs::remove_dir_all(&cache_dir);
+            }
+        }
+        
+        log::info!("[WebView] Linux cache cleared");
+    }
+    
+    #[cfg(mobile)]
+    {
+        log::info!("[WebView] Clear cache requested for Android");
+        
+        // Android: 删除 WebView 缓存目录
+        // Android 的 WebView 缓存在应用私有目录下
+        let cache_dir = app.path().cache_dir()
+            .map_err(|e| format!("获取缓存目录失败: {}", e))?;
+        
+        let webview_cache = cache_dir.join("WebView");
+        if webview_cache.exists() {
+            log::info!("[WebView] Clearing Android WebView cache: {:?}", webview_cache);
+            let _ = std::fs::remove_dir_all(&webview_cache);
+        }
+        
+        // 也清理默认缓存
+        let default_cache = cache_dir.join("Default");
+        if default_cache.exists() {
+            log::info!("[WebView] Clearing Android Default cache: {:?}", default_cache);
+            let _ = std::fs::remove_dir_all(&default_cache);
+        }
+        
+        log::info!("[WebView] Android cache cleared");
+    }
+    
     Ok(CommandResponse::success(true))
 }
 

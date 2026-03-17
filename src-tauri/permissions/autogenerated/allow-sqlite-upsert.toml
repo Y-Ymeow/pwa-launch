@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-sqlite-upsert"
+description = "允许 EAV upsert 操作"
+commands.allow = ["sqlite_upsert"]

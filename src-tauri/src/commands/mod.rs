@@ -65,6 +65,9 @@ pub mod pwa;
 
 pub mod webview;
 
+pub mod persistent_cache;
+pub mod sqlite;
+
 // 重新导出
 pub use backup::*;
 pub use cookie::*;
@@ -76,6 +79,9 @@ pub use screen::*;
 
 pub use pwa::*;
 pub use webview::*;
+
+pub use persistent_cache::*;
+pub use sqlite::*;
 
 // 辅助函数
 fn extract_domain(url: &str) -> String {

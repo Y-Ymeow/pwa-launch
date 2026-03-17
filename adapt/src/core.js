@@ -51,11 +51,9 @@ export function createBridge() {
     },
 
     _shimServiceWorker() {
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register = function () {
-          return new Promise(() => {});
-        };
-      }
+      // 不劫持 Service Worker，让 PWA 使用自己的 SW
+      // 缓存通过 persistentCache API 手动管理
+      console.log("[PWA Adapt] Service Worker not shimmed, using native SW");
     },
 
     async invoke(cmd, payload = {}) {

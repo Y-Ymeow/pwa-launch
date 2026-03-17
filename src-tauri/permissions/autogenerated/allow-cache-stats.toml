@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-cache-stats"
+description = "Allows getting statistics of persistent cache"
+commands.allow = ["cache_stats"]

@@ -36,6 +36,9 @@ import {
   setAudioProgressCallback,
   AdaptAudio,
 } from "./audio.js";
+import { createPersistentCache } from "./persistentCache.js";
+import { appCache, initAppCache } from "./appCache.js";
+import { createSQLiteStorage, hijackLocalStorage as hijackLocalStorageSQLite, hijackIndexedDB as hijackIndexedDBSQLite } from "./sqlite.js";
 
 (function () {
   // 防止重复注入
@@ -122,6 +125,7 @@ import {
   const fs = createFS(bridge);
   const storage = createStorage(bridge);
   const network = createNetwork(bridge);
+  const persistentCache = createPersistentCache(bridge);
 
   // 完整 API
   const tauriBridge = {
@@ -249,6 +253,15 @@ import {
         history.back();
       }
     },
+
+    // 持久化缓存 API
+    persistentCache,
+
+    // 应用缓存（预缓存应用资源）
+    appCache,
+
+    // SQLite 存储（替代 IndexedDB）
+    sqlite: createSQLiteStorage(bridge),
   };
 
   // 暴露到全局
@@ -273,8 +286,14 @@ import {
 
   // 初始化
   tauriBridge.init().then(() => {
-    // 劫持 LocalStorage
+    // 劫持 LocalStorage（使用旧版存储，如需使用 SQLite 后端请改为：hijackLocalStorageSQLite(bridge)）
     hackLocalStorage(bridge);
+
+    // 可选：使用 SQLite 替代 IndexedDB（如需启用请取消下面注释）
+    // hijackIndexedDBSQLite(bridge);
+
+    // 初始化应用缓存
+    initAppCache(tauriBridge);
 
     // 劫持 window.open 走浏览器模式
     const originalOpen = window.open;

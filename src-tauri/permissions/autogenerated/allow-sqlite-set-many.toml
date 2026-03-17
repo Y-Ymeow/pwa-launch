@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-sqlite-set-many"
+description = "Allows batch setting key-values in SQLite storage"
+commands.allow = ["sqlite_set_many"]

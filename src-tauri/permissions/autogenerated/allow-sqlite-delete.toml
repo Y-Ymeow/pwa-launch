@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-sqlite-delete"
+description = "Allows deleting key-value from SQLite storage"
+commands.allow = ["sqlite_delete"]

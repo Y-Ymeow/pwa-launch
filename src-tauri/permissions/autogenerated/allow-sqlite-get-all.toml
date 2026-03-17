@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-sqlite-get-all"
+description = "Allows getting all key-values from SQLite storage"
+commands.allow = ["sqlite_get_all"]

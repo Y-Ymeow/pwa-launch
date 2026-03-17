@@ -290,7 +290,19 @@ function App() {
       if (event.data?.type === "ADAPT_INVOKE") {
         const { cmd, payload } = event.data;
         try {
-          const result = await invoke(cmd, payload);
+          // 找到对应的 appId
+          const entry = Object.entries(iframesRef.current).find(
+            ([_, f]) => f.contentWindow === event.source,
+          );
+          const appId = entry ? entry[0] : null;
+
+          // 为 SQLite 命令自动注入 pwaId
+          let finalPayload = payload;
+          if (appId && cmd.startsWith("sqlite_")) {
+            finalPayload = { ...payload, pwaId: appId };
+          }
+
+          const result = await invoke(cmd, finalPayload);
           event.source?.postMessage(
             {
               type: "ADAPT_RESULT",
@@ -316,7 +328,7 @@ function App() {
   const getAppIcon = (appId: string) =>
     apps.find((a) => a.id === appId)?.icon_url;
 
-  // URL 代理转换 - 直接使用原始 URL，依赖 WebView 自带缓存
+  // URL 代理转换 - 直接使用原始 URL
   const getProxiedUrl = useCallback((url: string) => {
     return url;
   }, []);

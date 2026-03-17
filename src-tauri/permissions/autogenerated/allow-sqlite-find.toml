@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-sqlite-find"
+description = "允许 EAV find 查询"
+commands.allow = ["sqlite_find"]

@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-sqlite-clear"
+description = "Allows clearing all data in SQLite storage for app"
+commands.allow = ["sqlite_clear"]

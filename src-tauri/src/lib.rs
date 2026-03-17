@@ -12,6 +12,7 @@ use tauri_plugin_shell::init as shell_plugin;
 use tokio::sync::RwLock;
 
 // 全局数据库连接，用于在协议处理器中访问
+// 同时用于：主应用数据、PWA KV 存储、Cookies 等
 pub static DB_CONN: OnceLock<Mutex<rusqlite::Connection>> = OnceLock::new();
 
 pub fn run() {
@@ -161,8 +162,15 @@ pub fn run() {
                 let db_path = app_data_dir.join("pwa_container.db");
 
                 // 只使用一个数据库连接，避免死锁
-                let conn = rusqlite::Connection::open(&db_path)?;
+                let mut conn = rusqlite::Connection::open(&db_path)?;
+                // 启用外键支持（级联删除需要）
+                conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+                // 启用 WAL 模式提高并发性能
+                conn.execute_batch("PRAGMA journal_mode = WAL;")?;
                 let _ = DB_CONN.set(Mutex::new(conn));
+
+                // 初始化 SQLite KV 表（使用 DB_CONN）
+                commands::sqlite::init_sqlite_kv()?;
 
                 let proxy_settings = Arc::new(RwLock::new(None::<commands::ProxySettings>));
                 app.manage(proxy_settings.clone());
@@ -379,6 +387,7 @@ pub fn run() {
             commands::list_running_pwas,
             commands::update_pwa,
             commands::close_pwa_window,
+            commands::clear_webview_cache,
             commands::clear_data,
             commands::backup_data,
             commands::restore_data,
@@ -423,6 +432,22 @@ pub fn run() {
             commands::eval_js,
             commands::get_app_config,
             commands::set_app_config,
+            // 持久化缓存 API
+            commands::cache_set,
+            commands::cache_get,
+            commands::cache_delete,
+            commands::cache_list,
+            commands::cache_clear,
+            commands::cache_stats,
+            commands::cache_exists,
+            // SQLite EAV 模型命令
+            commands::sqlite_upsert,
+            commands::sqlite_find,
+            commands::sqlite_delete,
+            commands::sqlite_find_one,
+            commands::sqlite_count,
+            commands::sqlite_clear_table,
+            commands::sqlite_list_tables,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

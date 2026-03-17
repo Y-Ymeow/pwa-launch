@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-cache-exists"
+description = "Allows checking if item exists in persistent cache"
+commands.allow = ["cache_exists"]

@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-sqlite-set"
+description = "Allows setting key-value in SQLite storage"
+commands.allow = ["sqlite_set"]

@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-sqlite-stats"
+description = "Allows getting SQLite storage statistics"
+commands.allow = ["sqlite_stats"]

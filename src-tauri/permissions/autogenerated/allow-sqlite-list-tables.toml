@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-sqlite-list-tables"
+description = "允许列出 EAV 表"
+commands.allow = ["sqlite_list_tables"]

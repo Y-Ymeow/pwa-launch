@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-sqlite-exists"
+description = "Allows checking if key exists in SQLite storage"
+commands.allow = ["sqlite_exists"]

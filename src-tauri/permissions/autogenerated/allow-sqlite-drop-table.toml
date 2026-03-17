@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-sqlite-drop-table"
+description = "Allows dropping dynamic table in SQLite"
+commands.allow = ["sqlite_drop_table"]

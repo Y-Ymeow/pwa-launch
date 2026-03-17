@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-cache-list"
+description = "Allows listing items in persistent cache"
+commands.allow = ["cache_list"]

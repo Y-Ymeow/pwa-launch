@@ -39,10 +39,6 @@ export function BrowserView({
   const [showCookieManager, setShowCookieManager] = useState(false);
   const [cookieDomains, setCookieDomains] = useState<string[]>([]);
   const [isLoadingDomains, setIsLoadingDomains] = useState(false);
-  
-  // UI 位置和显示状态
-  const [toolbarVisible, setToolbarVisible] = useState(true);
-  const [toolbarPosition, setToolbarPosition] = useState<"top" | "bottom">("top");
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -196,21 +192,20 @@ export function BrowserView({
       height: "100vh",
       overflow: "hidden"
     }}>
-      {/* 工具栏 - 可根据位置调整 */}
+      {/* 工具栏 - 固定在顶部 */}
       <div
         className="browser-local-bar"
         style={{
-          display: toolbarVisible ? "flex" : "none",
+          display: "flex",
           gap: "10px",
           marginBottom: "20px",
           alignItems: "center",
-          order: toolbarPosition === "top" ? 0 : 2,
         }}
       >
         <button
           onClick={onClose}
           className="browser-btn"
-          style={{ 
+          style={{
             padding: "8px 16px",
             background: "rgba(255,255,255,0.1)",
             border: "1px solid rgba(255,255,255,0.2)",
@@ -223,40 +218,6 @@ export function BrowserView({
           ←
         </button>
 
-        <button
-          onClick={() => setToolbarVisible(!toolbarVisible)}
-          style={{
-            padding: "8px 12px",
-            background: "rgba(255,255,255,0.1)",
-            border: "1px solid rgba(255,255,255,0.2)",
-            borderRadius: "8px",
-            color: "white",
-            cursor: "pointer",
-            fontSize: "14px",
-          }}
-          title={toolbarVisible ? "隐藏工具栏" : "显示工具栏"}
-        >
-          {toolbarVisible ? "👁️" : "🙈"}
-        </button>
-
-        {toolbarVisible && (
-          <button
-            onClick={() => setToolbarPosition(toolbarPosition === "top" ? "bottom" : "top")}
-            style={{
-              padding: "8px 12px",
-              background: "rgba(255,255,255,0.1)",
-              border: "1px solid rgba(255,255,255,0.2)",
-              borderRadius: "8px",
-              color: "white",
-              cursor: "pointer",
-              fontSize: "14px",
-            }}
-            title={toolbarPosition === "top" ? "移至底部" : "移至顶部"}
-          >
-            {toolbarPosition === "top" ? "⬇️" : "⬆️"}
-          </button>
-        )}
-
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -267,6 +228,11 @@ export function BrowserView({
           <input
             ref={inputRef}
             type="text"
+            inputMode="url"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck="false"
             value={inputUrl}
             onChange={(e) => setInputUrl(e.target.value)}
             onFocus={() => setIsInputFocused(true)}
@@ -275,13 +241,15 @@ export function BrowserView({
             className="browser-address-input"
             style={{
               flex: 1,
-              padding: "8px 12px",
+              padding: "10px 12px",
               borderRadius: "8px",
               border: "1px solid rgba(255,255,255,0.2)",
               background: "rgba(0,0,0,0.3)",
               color: "white",
-              fontSize: "14px",
+              fontSize: "16px",
               outline: "none",
+              WebkitAppearance: "none",
+              minWidth: 0,
             }}
           />
           <button
@@ -289,7 +257,7 @@ export function BrowserView({
             className="browser-go-btn"
             disabled={isNavigating}
             style={{
-              padding: "8px 16px",
+              padding: "10px 16px",
               background: "linear-gradient(135deg, #11998e 0%, #38ef7d 100%)",
               border: "none",
               borderRadius: "8px",
@@ -297,6 +265,7 @@ export function BrowserView({
               cursor: isNavigating ? "not-allowed" : "pointer",
               fontSize: "14px",
               fontWeight: "bold",
+              whiteSpace: "nowrap",
             }}
           >
             {isNavigating ? "..." : "GO"}
@@ -614,7 +583,6 @@ export function BrowserView({
         style={{
           flex: 1,
           overflowY: "auto",
-          order: 1,
           background: "rgba(255,255,255,0.1)",
           padding: "20px",
           borderRadius: "12px",
@@ -622,32 +590,11 @@ export function BrowserView({
           color: "white",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-          <h3 style={{ margin: 0 }}>浏览器模式</h3>
-          {!toolbarVisible && (
-            <button
-              onClick={() => setToolbarVisible(true)}
-              style={{
-                padding: "4px 12px",
-                background: "rgba(102,126,234,0.3)",
-                border: "none",
-                borderRadius: "6px",
-                color: "white",
-                cursor: "pointer",
-                fontSize: "12px",
-              }}
-            >
-              显示工具栏
-            </button>
-          )}
-        </div>
+        <h3 style={{ margin: 0, marginBottom: "10px" }}>浏览器模式</h3>
         <p>输入网址后将直接在当前窗口打开网站。</p>
         <p style={{ marginTop: "10px", fontSize: "14px", opacity: 0.8 }}>
           💡 提示：此模式 100% 兼容所有网站，包括需要人机验证的网站。
           但无法后台播放，返回应用列表可回到 PWA 容器。
-        </p>
-        <p style={{ marginTop: "10px", fontSize: "12px", opacity: 0.6 }}>
-          🎛️ 工具栏可拖动到顶部/底部或隐藏，适应不同网页布局
         </p>
       </div>
 
