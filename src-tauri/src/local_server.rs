@@ -523,33 +523,54 @@ async fn handle_static_file(path: &str, original_headers: warp::http::HeaderMap)
                 }
             }
             
-            // 添加 Cookies - 使用 referer 的域名（来源页面）而不是目标 URL 域名
-            // 这样可以正确处理 CDN 图片、子域名资源等情况
-            let cookie_domain = referer_domain.as_deref().or(target_domain);
-            if let Some(domain) = cookie_domain {
-                let mut all_cookies = Vec::new();
-                
+            // 添加 Cookies - 同时获取 referer 域名和目标 URL 域名的 cookies
+            // 这样可以正确处理：
+            // 1. CDN/子域名资源请求（有 referer）
+            // 2. 直接请求（无 referer）
+            // 3. 混合情况（同时获取两个域名的 cookies）
+            let mut all_cookies = Vec::new();
+            let mut cookie_sources = Vec::new();
+
+            // 收集所有需要查询的域名（去重）
+            let mut domains_to_query: Vec<&str> = Vec::new();
+            if let Some(ref r) = referer_domain {
+                domains_to_query.push(r);
+            }
+            if let Some(t) = target_domain {
+                // 避免重复添加相同域名
+                if !domains_to_query.contains(&t) {
+                    domains_to_query.push(t);
+                }
+            }
+
+            for domain in &domains_to_query {
                 if let Ok(cookies) = crate::db::get_cookies_for_domain(&conn, "browser", domain) {
-                    for (k, v) in cookies {
+                    for (k, v) in &cookies {
                         all_cookies.push(format!("{}={}", k, v));
                     }
+                    if !cookies.is_empty() {
+                        cookie_sources.push(format!("browser:{}", domain));
+                    }
                 }
-                
+
                 if let Ok(cookies) = crate::db::get_cookies_for_domain(&conn, "webview", domain) {
-                    for (k, v) in cookies {
+                    for (k, v) in &cookies {
                         all_cookies.push(format!("{}={}", k, v));
                     }
+                    if !cookies.is_empty() {
+                        cookie_sources.push(format!("webview:{}", domain));
+                    }
                 }
-                
-                if !all_cookies.is_empty() {
-                    let cookie_str = all_cookies.join("; ");
-                    log::info!("[LocalServer] Target: {}, Referer: {}, Cookies from: {} - {}", 
-                        target_domain.unwrap_or("?"),
-                        referer_domain.as_deref().unwrap_or("?"),
-                        domain, 
-                        cookie_str);
-                    headers.insert(reqwest::header::COOKIE, cookie_str.parse().unwrap());
-                }
+            }
+
+            if !all_cookies.is_empty() {
+                let cookie_str = all_cookies.join("; ");
+                log::info!("[LocalServer] Target: {}, Referer: {}, Cookies from: {:?}, Count: {}",
+                    target_domain.unwrap_or("?"),
+                    referer_domain.as_deref().unwrap_or("?"),
+                    cookie_sources,
+                    all_cookies.len());
+                headers.insert(reqwest::header::COOKIE, cookie_str.parse().unwrap());
             }
         }
     }
