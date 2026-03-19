@@ -1,0 +1,7 @@
+# 允许读取文件内容
+[[permission]]
+identifier = "allow-read-file-content"
+description = "允许读取文件内容并返回 Base64"
+
+[[permission.allow]]
+command = "read_file_content"

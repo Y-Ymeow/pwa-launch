@@ -1,6 +1,0 @@
-"$schema" = "../schema.json"
-
-[[permission]]
-identifier = "allow-sqlite-table-set"
-description = "Allows setting key-value in dynamic table"
-commands.allow = ["sqlite_table_set"]

@@ -799,38 +799,6 @@ pub const INJECT_BROWSER_UI: &str = r#"
 })();
 "#;
 
-/// 在当前 WebView 中打开 URL（不创建新窗口）
-/// 并注入浏览器 UI
-#[tauri::command]
-pub async fn navigate_to_url(
-    window: WebviewWindow,
-    url: String,
-) -> Result<CommandResponse<bool>, String> {
-    // 导航到目标 URL
-    let nav_script = format!(r#"window.location.href = "{}";"#, url.replace("\"", "\\\""));
-    window
-        .eval(nav_script)
-        .map_err(|e| format!("导航失败: {:?}", e))?;
-
-    // 延迟注入 UI 脚本（等待页面开始加载）
-    let window_clone = window.clone();
-    let ui_script = INJECT_BROWSER_UI.to_string();
-
-    tokio::spawn(async move {
-        // 等待页面加载
-        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-
-        // 注入 UI
-        let _ = window_clone.eval(&ui_script);
-
-        // 再次注入（确保成功）
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        let _ = window_clone.eval(&ui_script);
-    });
-
-    log::info!("[WebView] Navigate to: {}", url);
-    Ok(CommandResponse::success(true))
-}
 
 /// 重新注入浏览器 UI（用于页面跳转后）
 #[tauri::command]
@@ -855,18 +823,6 @@ pub async fn check_browser_ui(window: WebviewWindow) -> Result<CommandResponse<b
     Ok(CommandResponse::success(has_ui))
 }
 
-/// 返回上一页
-#[tauri::command]
-pub async fn navigate_back(window: WebviewWindow) -> Result<CommandResponse<bool>, String> {
-    let script = r#"window.__TAURI_GO_BACK__ && window.__TAURI_GO_BACK__();"#.to_string();
-
-    window
-        .eval(script)
-        .map_err(|e| format!("返回失败: {:?}", e))?;
-
-    log::info!("[WebView] Navigate back");
-    Ok(CommandResponse::success(true))
-}
 
 /// 获取当前窗口的 WebView 列表（用于移动端获取 webview 引用）
 #[tauri::command]

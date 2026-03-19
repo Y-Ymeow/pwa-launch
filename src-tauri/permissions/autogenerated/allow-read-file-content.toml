@@ -1,0 +1,6 @@
+"$schema" = "../schema.json"
+
+[[permission]]
+identifier = "allow-read-file-content"
+description = "允许读取文件内容并返回 Base64"
+commands.allow = ["read_file_content"]

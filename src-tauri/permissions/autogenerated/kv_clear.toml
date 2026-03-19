@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "allow-kv-clear"
-description = "Allows clearing all KV store entries for an app"
-commands.allow = ["kv_clear"]

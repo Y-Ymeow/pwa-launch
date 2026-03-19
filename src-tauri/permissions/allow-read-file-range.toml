@@ -1,0 +1,7 @@
+# 允许读取文件范围
+[[permission]]
+identifier = "allow-read-file-range"
+description = "允许读取文件的指定范围并返回 Base64"
+
+[[permission.allow]]
+command = "read_file_range"

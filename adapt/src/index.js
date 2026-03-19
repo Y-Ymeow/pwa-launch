@@ -5,14 +5,8 @@
  * <script src="adapt.min.js"></script>
  */
 
-import {
-  generateId,
-  originalFetch,
-  OriginalXHR,
-  createBridge,
-} from "./core.js";
+import { createBridge } from "./core.js";
 import { createFS, setupFilePicker } from "./fs.js";
-import { createStorage, hackIndexedDB, hackLocalStorage } from "./storage.js";
 import {
   createNetwork,
   setupXHRProxy,
@@ -36,9 +30,13 @@ import {
   setAudioProgressCallback,
   AdaptAudio,
 } from "./audio.js";
-import { createPersistentCache } from "./persistentCache.js";
-import { appCache, initAppCache } from "./appCache.js";
-import { createSQLiteStorage, hijackLocalStorage as hijackLocalStorageSQLite, hijackIndexedDB as hijackIndexedDBSQLite } from "./sqlite.js";
+
+import {
+  createSQL,
+  createEAV,
+  hijackLocalStorage as hijackLocalStorageSQL,
+  createCache,
+} from "./sql.js";
 
 (function () {
   // 防止重复注入
@@ -123,9 +121,7 @@ import { createSQLiteStorage, hijackLocalStorage as hijackLocalStorageSQLite, hi
 
   // 创建功能模块
   const fs = createFS(bridge);
-  const storage = createStorage(bridge);
   const network = createNetwork(bridge);
-  const persistentCache = createPersistentCache(bridge);
 
   // 完整 API
   const tauriBridge = {
@@ -141,13 +137,42 @@ import { createSQLiteStorage, hijackLocalStorage as hijackLocalStorageSQLite, hi
     readFileRange: fs.readFileRange,
     getMediaProxyUrl: getMediaProxyUrl,
 
-    // 存储
-    storage,
+    /**
+     * 选择音频文件（推荐用于音乐播放器）
+     * 自动缓存本地服务器 URL，避免 Android content:// 授权过期问题
+     * @param {Object} options - 配置选项
+     * @returns {Promise<{name: string, path: string, url: string, sourceUrl: string}>}
+     */
+    async pickAudioFile(options = {}) {
+      const result = await fs.pickAndResolveLocalFile({
+        title: options.title || "选择音乐文件",
+        multiple: false,
+        types: [{
+          description: "Audio files",
+          accept: {
+            'audio/*': ['.mp3', '.flac', '.wav', '.ogg', '.m4a', '.aac']
+          }
+        }]
+      });
 
-    // 清除所有 KV 存储（所有应用）
-    async clearAllKV() {
-      const res = await bridge.invoke("kv_clear", { appId: "*" });
-      return res.success;
+      if (!result || !result.url) {
+        throw new Error("No file selected");
+      }
+
+      // 缓存 content:// URI 到本地 URL 的映射
+      if (result.path.startsWith("content://")) {
+        localStorage.setItem(`__file_url_${result.path}`, result.url);
+        console.log("[Adapt] Cached local URL for:", result.path);
+      }
+
+      const fileName = result.path.split('/').pop().split('?')[0];
+
+      return {
+        name: decodeURIComponent(fileName),
+        path: result.path,      // 原始路径（可能为 content://）
+        url: result.url,        // 本地服务器 URL（持久化）
+        sourceUrl: result.url   // 用于播放的 URL
+      };
     },
 
     // Cookie
@@ -162,15 +187,34 @@ import { createSQLiteStorage, hijackLocalStorage as hijackLocalStorageSQLite, hi
       },
     },
 
-    // WebView 控制
+    // WebView 控制（通过 postMessage 请求父窗口打开新标签）
     webview: {
       async open(options) {
-        return await bridge.invoke("navigate_to_url", {
-          url: options.url,
+        return new Promise((resolve, reject) => {
+          const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+          const timeout = setTimeout(() => {
+            reject(new Error("Open webview timeout"));
+          }, 5000);
+
+          const handler = (event) => {
+            if (event.data?.type === "ADAPT_OPEN_WEBVIEW_RESPONSE" && event.data?.requestId === requestId) {
+              clearTimeout(timeout);
+              window.removeEventListener("message", handler);
+              
+              if (event.data.error) {
+                reject(new Error(event.data.error));
+              } else {
+                resolve(event.data);
+              }
+            }
+          };
+
+          window.addEventListener("message", handler);
+          window.parent.postMessage(
+            { type: "ADAPT_OPEN_WEBVIEW", requestId, url: options.url },
+            "*"
+          );
         });
-      },
-      async close() {
-        return await bridge.invoke("navigate_back", {});
       },
     },
 
@@ -254,14 +298,12 @@ import { createSQLiteStorage, hijackLocalStorage as hijackLocalStorageSQLite, hi
       }
     },
 
-    // 持久化缓存 API
-    persistentCache,
-
-    // 应用缓存（预缓存应用资源）
-    appCache,
-
-    // SQLite 存储（替代 IndexedDB）
-    sqlite: createSQLiteStorage(bridge),
+    // SQL 数据库（在 ADAPT_PARENT_READY 后初始化）
+    sql: null,
+    eav: null,
+    
+    // Cache API（在 ADAPT_PARENT_READY 后初始化）
+    cache: null,
   };
 
   // 暴露到全局
@@ -276,25 +318,84 @@ import { createSQLiteStorage, hijackLocalStorage as hijackLocalStorageSQLite, hi
   setupXHRProxy(tauriBridge);
 
   // 设置文件选择器
-  setupFilePicker(tauriBridge);
-
-  // 劫持 IndexedDB
-  hackIndexedDB();
+  setupFilePicker(fs, bridge);
 
   // 禁用 Service Worker
   tauriBridge._shimServiceWorker();
 
+  // 标记是否已初始化
+  let isStorageInitialized = false;
+  
+  // 主动请求获取 app 信息（验证机制）
+  async function requestAppInfo() {
+    return new Promise((resolve, reject) => {
+      const requestId = Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+      const timeout = setTimeout(() => {
+        reject(new Error("Request app info timeout"));
+      }, 5000);
+
+      const handler = (event) => {
+        if (event.data?.type === "ADAPT_APP_INFO_RESPONSE" && event.data?.requestId === requestId) {
+          clearTimeout(timeout);
+          window.removeEventListener("message", handler);
+          
+          if (event.data.error) {
+            reject(new Error(event.data.error));
+          } else {
+            resolve(event.data.appId);
+          }
+        }
+      };
+
+      window.addEventListener("message", handler);
+      window.parent.postMessage(
+        { type: "ADAPT_GET_APP_INFO", requestId },
+        "*"
+      );
+      console.log("[Adapt] Requesting app info...");
+    });
+  }
+
+  // 初始化存储（使用父窗口验证后的 appId）
+  async function initStorage() {
+    if (isStorageInitialized) return;
+    
+    try {
+      // 主动请求获取验证后的 appId
+      const appId = await requestAppInfo();
+      console.log(`[Adapt] Got verified appId: ${appId}`);
+      
+      // 初始化 SQL 接口（验证后的 id）
+      tauriBridge.sql = createSQL(appId);
+      tauriBridge.eav = createEAV(appId);
+      
+      // 劫持 LocalStorage（验证后的 id）
+      hijackLocalStorageSQL(appId);
+      
+      // 初始化 Cache API（验证后的 id）
+      tauriBridge.cache = createCache(appId);
+      
+      isStorageInitialized = true;
+      console.log(`[Adapt] All storage initialized for ${appId}`);
+      
+      // 触发存储就绪事件
+      window.dispatchEvent(new CustomEvent("adapt-storage-ready", { detail: { appId } }));
+    } catch (error) {
+      console.error("[Adapt] Failed to initialize storage:", error);
+      // 使用 fallback（非安全模式，仅用于调试）
+      const fallbackId = "unauthorized";
+      tauriBridge.sql = createSQL(fallbackId);
+      tauriBridge.eav = createEAV(fallbackId);
+      hijackLocalStorageSQL(fallbackId);
+      tauriBridge.cache = createCache(fallbackId);
+    }
+  }
+  
+  // 启动存储初始化
+  initStorage();
+
   // 初始化
   tauriBridge.init().then(() => {
-    // 劫持 LocalStorage（使用 SQLite 后端）
-    hijackLocalStorageSQLite(bridge);
-
-    // 劫持 IndexedDB（使用 SQLite 后端）
-    hijackIndexedDBSQLite(bridge);
-
-    // 初始化应用缓存
-    initAppCache(tauriBridge);
-
     // 劫持 window.open 走浏览器模式
     const originalOpen = window.open;
     window.open = function (url, target, features) {

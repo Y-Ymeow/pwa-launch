@@ -13,8 +13,29 @@ let progressInterval = null;
  * @param {string} url - 音频 URL
  */
 export async function playAudio(url) {
-  // content:// URI 直接传给插件，不转换
-  const finalUrl = url;
+  let finalUrl = url;
+
+  // Android: 如果是 content:// URI，尝试转换为本地服务器 URL
+  if (url.startsWith("content://") && window.__TAURI__) {
+    try {
+      // 尝试从路径映射获取已转换的 URL
+      const cachedUrl = localStorage.getItem(`__file_url_${url}`);
+      if (cachedUrl && cachedUrl.startsWith("http://localhost")) {
+        finalUrl = cachedUrl;
+        console.log("[Audio] Using cached local URL:", finalUrl);
+      } else {
+        // 没有缓存的本地 URL，尝试使用原始路径重新解析
+        console.warn("[Audio] Content URI may have expired auth:", url);
+        console.warn("[Audio] Please re-select the file to get persistent access");
+        // 触发一个自定义事件，让应用知道需要重新选择文件
+        window.dispatchEvent(new CustomEvent('ADAPT_FILE_AUTH_EXPIRED', { 
+          detail: { originalUrl: url } 
+        }));
+      }
+    } catch (e) {
+      console.error("[Audio] Failed to resolve content URI:", e);
+    }
+  }
 
   if (window.__TAURI__) {
     try {

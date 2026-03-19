@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "allow-navigate-back"
-description = "Allows navigating back in the current WebView"
-commands.allow = ["navigate_back"]

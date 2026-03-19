@@ -2,84 +2,30 @@
   "$schema": "https://schema.tauri.app/config/2/capabilities",
   "identifier": "main-capability",
   "description": "Default capability for the app",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "shell:default",
     "fs:default",
-    "allow-fs-create-dir",
-    "allow-fs-exists",
-    "allow-fs-read-dir",
-    "allow-fs-remove",
-    "allow-fs-write-file",
     "dialog:default",
-    "http:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://*"
+        },
+        {
+          "url": "http://*"
+        }
+      ]
+    },
     "os:default",
     "log:default",
-    "allow-install-pwa",
-    "allow-uninstall-pwa",
-    "allow-list-apps",
-    "allow-launch-app",
-    "allow-close-pwa-window",
-    "allow-list-running-pwas",
-    "allow-clear-data",
-    "allow-backup-data",
-    "allow-restore-data",
-    "allow-get-app-info",
-    "allow-update-pwa",
-    "allow-clear-all-cache",
-    "allow-proxy-fetch",
-    "allow-get-cookies",
-    "allow-set-cookies",
-    "allow-clear-cookies",
-    "allow-get-cookie-domains",
-    "allow-get-all-cookies",
-    "allow-set-keep-screen-on",
-    "allow-get-keep-screen-on",
-    "allow-set-proxy",
-    "allow-get-proxy",
-    "allow-disable-proxy",
-    "allow-opfs-write-file",
-    "allow-opfs-read-file",
-    "allow-opfs-delete-file",
-    "allow-opfs-list-dir",
-    "allow-resolve-local-file-url",
-    "allow-open-file-dialog",
-    "allow-read-file-content",
-    "allow-read-file-range",
-    "allow-kv-get-all",
-    "allow-kv-set",
-    "allow-kv-get",
-    "allow-kv-remove",
-    "allow-kv-clear",
-    "allow-check-storage-permission",
-    "allow-request-storage-permission",
-    "allow-sync-webview-cookies",
-    "allow-navigate-to-url",
-    "allow-navigate-back",
-    "allow-get-webview-info",
-    "allow-reinject-browser-ui",
-    "allow-check-browser-ui",
-    "allow-eval-js",
-    "allow-get-app-config",
-    "allow-set-app-config",
-    "allow-get-local-server-port",
-    "allow-get-proxy-cookies",
-    "allow-clear-webview-cache",
-    "allow-cache-set",
-    "allow-cache-get",
-    "allow-cache-delete",
-    "allow-cache-list",
-    "allow-cache-clear",
-    "allow-cache-stats",
-    "allow-cache-exists",
-    "allow-sqlite-upsert",
-    "allow-sqlite-find",
-    "allow-sqlite-delete",
-    "allow-sqlite-find-one",
-    "allow-sqlite-count",
-    "allow-sqlite-clear",
-    "allow-sqlite-list-tables",
+    "sql:default",
+    "sql:allow-execute",
+    "store:default",
     "allow-audio-play",
     "allow-audio-pause",
     "allow-audio-resume",
@@ -91,7 +37,158 @@
     "allow-audio-seek",
     "allow-audio-get-current-url",
     "allow-audio-set-loop",
+    "allow-open-file-dialog",
+    "allow-read-file-content",
+    "allow-read-file-range",
     "shell:allow-open",
-    "audioplayer:default"
+    "audioplayer:default",
+    "allow-clear-webview-cache-data",
+    "http:allow-fetch",
+    "http:allow-fetch-cancel",
+    "http:allow-fetch-cancel-body",
+    "http:allow-fetch-read-body",
+    "http:allow-fetch-send",
+    {
+      "identifier": "fs:allow-app-read-recursive",
+      "allow": [
+        {
+          "path": "$APPDATA"
+        },
+        {
+          "path": "$APPDATA/**/*"
+        },
+        {
+          "path": "$APPCONFIG*"
+        },
+        {
+          "path": "$APPCONFIG/**/*"
+        },
+        {
+          "path": "$APPLOCALDATA"
+        },
+        {
+          "path": "$APPLOCALDATA/**/*"
+        },
+        {
+          "path": "$APPCACHE"
+        },
+        {
+          "path": "$APPCACHE/**/*"
+        },
+        {
+          "path": "$APPLOG"
+        },
+        {
+          "path": "$APPLOG/**/*"
+        },
+        {
+          "path": "$RESOURCE"
+        },
+        {
+          "path": "$RESOURCE/**/*"
+        },
+        {
+          "path": "$APPCACHE"
+        },
+        {
+          "path": "$APPCACHE/**/*"
+        },
+        {
+          "path": "$APPLOG"
+        },
+        {
+          "path": "$APPLOG/**/*"
+        },
+        {
+          "path": "$AUDIO"
+        },
+        {
+          "path": "$AUDIO/**/*"
+        },
+        {
+          "path": "$CACHE"
+        },
+        {
+          "path": "$CACHE/**/*"
+        },
+        {
+          "path": "$CONFIG"
+        },
+        {
+          "path": "$CONFIG/**/*"
+        },
+        {
+          "path": "$DATA"
+        },
+        {
+          "path": "$DATA/**/*"
+        },
+        {
+          "path": "$LOCALDATA"
+        },
+        {
+          "path": "$LOCALDATA/**/*"
+        },
+        {
+          "path": "$DESKTOP"
+        },
+        {
+          "path": "$DESKTOP/**/*"
+        },
+        {
+          "path": "$DOCUMENT"
+        },
+        {
+          "path": "$DOCUMENT/**/*"
+        },
+        {
+          "path": "$DOWNLOAD"
+        },
+        {
+          "path": "$DOWNLOAD/**/*"
+        },
+        {
+          "path": "$PICTURE"
+        },
+        {
+          "path": "$PICTURE/**/*"
+        },
+        {
+          "path": "$PUBLIC"
+        },
+        {
+          "path": "$PUBLIC/**/*"
+        },
+        {
+          "path": "$VIDEO"
+        },
+        {
+          "path": "$VIDEO/**/*"
+        },
+        {
+          "path": "$RESOURCE"
+        },
+        {
+          "path": "$RESOURCE/**/*"
+        },
+        {
+          "path": "/computer/Music"
+        },
+        {
+          "path": "/computer/Music/**/*"
+        },
+        {
+          "path": "/computer/Downloads"
+        },
+        {
+          "path": "/computer/Downloads/**/*"
+        }
+      ]
+    },
+    "fs:default",
+    "fs:read-all",
+    "fs:write-all",
+    "fs:allow-mkdir",
+    "fs:allow-read-dir"
   ]
 }

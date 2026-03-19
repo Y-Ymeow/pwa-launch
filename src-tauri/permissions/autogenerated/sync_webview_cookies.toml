@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "allow-sync-webview-cookies"
-description = "Allows syncing webview cookies"
-commands.allow = ["sync_webview_cookies"]

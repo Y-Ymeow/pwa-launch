@@ -1,0 +1,11 @@
+"$schema" = "../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-system-data-info"
+description = "Enables the get_system_data_info command without any pre-configured scope."
+commands.allow = ["get_system_data_info"]
+
+[[permission]]
+identifier = "deny-get-system-data-info"
+description = "Denies the get_system_data_info command without any pre-configured scope."
+commands.deny = ["get_system_data_info"]

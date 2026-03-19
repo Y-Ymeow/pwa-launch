@@ -1,6 +1,8 @@
 import { useRef, useEffect, useCallback, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { appDataDir } from "@tauri-apps/api/path";
 import type { BrowserHistoryItem, BrowserBookmarkItem } from "./types";
+import { clearCookies, getCookieDomains, syncWebviewCookies } from "../cookie";
 
 interface BrowserViewProps {
   browserUrl: string;
@@ -71,7 +73,7 @@ export function BrowserView({
 
   // 导航到 URL
   const navigateToUrl = useCallback(
-    async (url: string) => {
+    (url: string) => {
       const finalUrl = processUrl(url);
       if (!finalUrl) return;
 
@@ -79,23 +81,19 @@ export function BrowserView({
       setInputUrl(finalUrl);
       setIsNavigating(true);
 
-      try {
-        await invoke("navigate_to_url", { url: finalUrl });
+      // 直接在当前窗口打开
+      window.location.href = finalUrl;
 
-        // 添加到历史记录
-        setBrowserHistory((prev) =>
-          [
-            { url: finalUrl, title: finalUrl, timestamp: Date.now() },
-            ...prev.filter((h) => h.url !== finalUrl),
-          ].slice(0, 50),
-        );
+      // 添加到历史记录
+      setBrowserHistory((prev) =>
+        [
+          { url: finalUrl, title: finalUrl, timestamp: Date.now() },
+          ...prev.filter((h) => h.url !== finalUrl),
+        ].slice(0, 50),
+      );
 
-        showMessage("success", "正在打开...");
-      } catch (error) {
-        showMessage("error", `打开失败: ${String(error)}`);
-      } finally {
-        setIsNavigating(false);
-      }
+      showMessage("success", "正在打开...");
+      setIsNavigating(false);
     },
     [setBrowserUrl, setBrowserHistory, showMessage],
   );
@@ -139,8 +137,8 @@ export function BrowserView({
   const loadCookieDomains = useCallback(async () => {
     setIsLoadingDomains(true);
     try {
-      const result = await invoke<{ data: string[] }>("get_cookie_domains");
-      setCookieDomains(result.data || []);
+      const domains = await getCookieDomains();
+      setCookieDomains(domains);
     } catch (error) {
       showMessage("error", `加载域名失败: ${String(error)}`);
     } finally {
@@ -151,16 +149,8 @@ export function BrowserView({
   // 删除指定域名的 Cookies
   const deleteDomainCookies = useCallback(async (domain: string) => {
     try {
-      await invoke("clear_cookies", {
-        appId: "browser",
-        domain,
-        includeSubdomains: true,
-      });
-      await invoke("clear_cookies", {
-        appId: "webview",
-        domain,
-        includeSubdomains: true,
-      });
+      await clearCookies("browser", domain, true);
+      await clearCookies("webview", domain, true);
       showMessage("success", `已删除 ${domain} 及其子域的 Cookies`);
       // 刷新列表
       loadCookieDomains();
@@ -604,11 +594,7 @@ export function BrowserView({
           onClick={async () => {
             try {
               const domain = new URL(browserUrl).hostname;
-              await invoke("sync_webview_cookies", {
-                domain,
-                cookies: document.cookie,
-                userAgent: navigator.userAgent,
-              });
+              await syncWebviewCookies(domain, document.cookie, navigator.userAgent);
               showMessage("success", `已同步 ${domain} 的 Cookies`);
             } catch (error) {
               showMessage("error", `同步失败: ${String(error)}`);
@@ -635,16 +621,8 @@ export function BrowserView({
                 return;
               }
               const domain = new URL(browserUrl).hostname;
-              await invoke("clear_cookies", {
-                appId: "browser",
-                domain,
-                includeSubdomains: true,
-              });
-              await invoke("clear_cookies", {
-                appId: "webview",
-                domain,
-                includeSubdomains: true,
-              });
+              await clearCookies("browser", domain, true);
+              await clearCookies("webview", domain, true);
               showMessage("success", `已清除 ${domain} 及其子域的 Cookies`);
             } catch (error) {
               showMessage("error", `清除失败: ${String(error)}`);

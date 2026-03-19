@@ -1,6 +1,0 @@
-"$schema" = "../schema.json"
-
-[[permission]]
-identifier = "allow-sqlite-table-clear"
-description = "Allows clearing dynamic table"
-commands.allow = ["sqlite_table_clear"]

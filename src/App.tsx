@@ -6,22 +6,23 @@ import {
   AppList,
   ProxySettings,
   AppSettings,
+  DataManager,
+  AppDataManager,
+  ConfirmDialogProvider,
+  confirmDialog,
   type AppInfo,
   type RunningPwa,
   type PwaSnapshot,
-  type CommandResponse,
   type ViewMode,
   type BrowserHistoryItem,
   type BrowserBookmarkItem,
 } from "./components";
 import Test from "./Test.js";
+import { listApps, uninstallPwa, setRunningPwas } from "./pwa";
+import { kvGet, kvSet } from "./kv";
+import { usePostMessage } from "./hooks";
 
 const MAX_IFRAMES = 6;
-
-// KV 存储键
-const KV_APP_ID = "browser";
-const KV_KEY_HISTORY = "history";
-const KV_KEY_BOOKMARKS = "bookmarks";
 
 function App() {
   // 视图模式
@@ -37,33 +38,21 @@ function App() {
   >([]);
   const [browserDataLoaded, setBrowserDataLoaded] = useState(false);
 
-  // 从 KV 加载浏览器数据
+  // 从数据库加载浏览器数据
   useEffect(() => {
     const loadBrowserData = async () => {
       try {
-        const historyRes = await invoke<CommandResponse<string | null>>(
-          "kv_get",
-          {
-            appId: KV_APP_ID,
-            key: KV_KEY_HISTORY,
-          },
-        );
-        if (historyRes.success && historyRes.data) {
-          setBrowserHistory(JSON.parse(historyRes.data));
+        const historyJson = await kvGet("browser", "history");
+        if (historyJson) {
+          setBrowserHistory(JSON.parse(historyJson));
         }
 
-        const bookmarksRes = await invoke<CommandResponse<string | null>>(
-          "kv_get",
-          {
-            appId: KV_APP_ID,
-            key: KV_KEY_BOOKMARKS,
-          },
-        );
-        if (bookmarksRes.success && bookmarksRes.data) {
-          setBrowserBookmarks(JSON.parse(bookmarksRes.data));
+        const bookmarksJson = await kvGet("browser", "bookmarks");
+        if (bookmarksJson) {
+          setBrowserBookmarks(JSON.parse(bookmarksJson));
         }
       } catch (e) {
-        console.error("Failed to load browser data from KV:", e);
+        console.error("Failed to load browser data from DB:", e);
       } finally {
         setBrowserDataLoaded(true);
       }
@@ -71,35 +60,27 @@ function App() {
     loadBrowserData();
   }, []);
 
-  // 保存历史到 KV
+  // 保存历史到数据库
   useEffect(() => {
     if (!browserDataLoaded) return;
     const saveHistory = async () => {
       try {
-        await invoke("kv_set", {
-          appId: KV_APP_ID,
-          key: KV_KEY_HISTORY,
-          value: JSON.stringify(browserHistory),
-        });
+        await kvSet("browser", "history", JSON.stringify(browserHistory));
       } catch (e) {
-        console.error("Failed to save history to KV:", e);
+        console.error("Failed to save history to DB:", e);
       }
     };
     saveHistory();
   }, [browserHistory, browserDataLoaded]);
 
-  // 保存收藏到 KV
+  // 保存收藏到数据库
   useEffect(() => {
     if (!browserDataLoaded) return;
     const saveBookmarks = async () => {
       try {
-        await invoke("kv_set", {
-          appId: KV_APP_ID,
-          key: KV_KEY_BOOKMARKS,
-          value: JSON.stringify(browserBookmarks),
-        });
+        await kvSet("browser", "bookmarks", JSON.stringify(browserBookmarks));
       } catch (e) {
-        console.error("Failed to save bookmarks to KV:", e);
+        console.error("Failed to save bookmarks to DB:", e);
       }
     };
     saveBookmarks();
@@ -118,6 +99,14 @@ function App() {
   // 应用设置
   const [showAppSettings, setShowAppSettings] = useState(false);
 
+  // 数据管理
+  const [showDataManager, setShowDataManager] = useState(false);
+
+  // 单个应用数据管理
+  const [selectedAppForData, setSelectedAppForData] = useState<AppInfo | null>(
+    null,
+  );
+
   // 消息提示
   const [message, setMessage] = useState<{
     type: "success" | "error";
@@ -127,25 +116,24 @@ function App() {
   // 悬浮面板显示状态
   const [showSwitcherPanel, setShowSwitcherPanel] = useState(false);
 
-  const iframesRef = useRef<Record<string, HTMLIFrameElement>>({});
+  // 显示消息（必须在 usePostMessage 之前定义）
+  const showMessage = useCallback((type: "success" | "error", text: string) => {
+    setMessage({ type, text });
+    setTimeout(() => setMessage(null), 3000);
+  }, []);
 
-  // 加载应用列表
-  const loadApps = async () => {
+  // 使用 postMessage hook
+  const { iframesRef } = usePostMessage({ apps, showMessage });
+
+  // 加载应用列表（使用 pwa.ts）
+  const loadApps = useCallback(async () => {
     try {
-      const response = await invoke<CommandResponse<AppInfo[]>>("list_apps");
-      if (response.success && response.data) {
-        setApps(response.data);
-      }
+      const apps = await listApps();
+      setApps(apps);
     } catch (error) {
       showMessage("error", `加载应用列表失败：${error}`);
     }
-  };
-
-  // 显示消息
-  const showMessage = (type: "success" | "error", text: string) => {
-    setMessage({ type, text });
-    setTimeout(() => setMessage(null), 3000);
-  };
+  }, [showMessage]);
 
   // 初始化
   useEffect(() => {
@@ -154,203 +142,16 @@ function App() {
     // 加载屏幕常亮设置
     const loadKeepScreenOn = async () => {
       try {
-        const result = await invoke<{
-          success: boolean;
-          data: boolean | string | null;
-        }>("get_app_config", { key: "keep_screen_on" });
-        if (result.success && result.data) {
-          // 处理字符串或布尔值
-          const val = result.data;
-          const enabled = typeof val === "boolean" ? val : val === "true";
-          if (enabled) {
-            await invoke("set_keep_screen_on", { enabled: true });
-          }
+        const enabledStr = await kvGet("config", "keep_screen_on");
+        if (enabledStr === "true") {
+          await invoke("set_keep_screen_on", { enabled: true });
         }
       } catch (e) {
         console.error("Failed to load keep screen on setting:", e);
       }
     };
     loadKeepScreenOn();
-
-    // 监听 iframe 消息
-    const handleMessage = async (event: MessageEvent) => {
-      if (event.data?.type === "ADAPT_READY") {
-        event.source?.postMessage({ type: "ADAPT_PARENT_READY" }, "*");
-        return;
-      }
-
-      // 处理浏览器模式的 Cookies 同步
-      if (event.data?.type === "BROWSER_SYNC_COOKIES") {
-        const { domain, cookies } = event.data;
-        if (domain && cookies !== undefined) {
-          try {
-            await invoke("sync_webview_cookies", {
-              domain,
-              cookies,
-              userAgent: navigator.userAgent,
-            });
-            showMessage("success", `已同步 ${domain} 的 Cookies`);
-          } catch (error) {
-            showMessage("error", `同步 Cookies 失败: ${String(error)}`);
-          }
-        }
-        return;
-      }
-
-      // 处理 HTTP 代理请求（通过本地服务器，支持并发和流式传输）
-      if (event.data?.type === "ADAPT_PROXY_REQUEST") {
-        const { requestId, url, method, headers, body, isMedia, isXHR } =
-          event.data;
-        let requestBody = body;
-        console.log("[App] Proxy request:", {
-          requestId,
-          url,
-          method,
-          isMedia,
-          hasHeaders: !!headers,
-          hasBody: !!body,
-          bodyType: typeof body,
-          bodyValue: requestBody,
-        });
-        try {
-          // 把所有请求参数放在 body 里传给代理服务器
-          // 如果url是本地服务
-          if (url.startsWith("http://localhost:19315")) {
-            return await fetch(url);
-          }
-          // 父窗口的 fetch 只设置 Content-Type，不设置自定义 headers（避免浏览器拦截）
-          const proxyBodyObj = {
-            target: url,
-            method: method || "GET",
-            headers: headers || {},
-            body: requestBody || null,
-            isXHR: isXHR || false,
-          };
-          console.log("[App] Proxy body:", proxyBodyObj);
-
-          const proxyBody = JSON.stringify(proxyBodyObj);
-
-          // 根据 isMedia 选择路由：媒体请求走 /media/proxy（禁用 gzip），普通请求走 /api/proxy
-          const proxyUrl = isMedia
-            ? "http://localhost:19315/media/proxy"
-            : "http://localhost:19315/api/proxy";
-          console.log("[App] Proxy URL:", proxyUrl);
-
-          const proxyResponse = await fetch(proxyUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              // 不在这里添加其他 headers，防止浏览器拦截
-            },
-            body: proxyBody,
-          });
-
-          // 检测是否为二进制响应（图片、音频、视频）
-          const contentType = proxyResponse.headers.get("content-type") || "";
-          const isBinary =
-            contentType.startsWith("image/") ||
-            contentType.startsWith("audio/") ||
-            contentType.startsWith("video/") ||
-            contentType === "application/octet-stream";
-
-          let responseBody: string;
-          if (isBinary) {
-            // 二进制数据转为 base64
-            const arrayBuffer = await proxyResponse.arrayBuffer();
-            const bytes = new Uint8Array(arrayBuffer);
-            let binary = "";
-            for (let i = 0; i < bytes.byteLength; i++) {
-              binary += String.fromCharCode(bytes[i]);
-            }
-            responseBody = btoa(binary);
-          } else {
-            // 文本数据直接使用
-            responseBody = await proxyResponse.text();
-          }
-
-          const responseData = {
-            status: proxyResponse.status,
-            statusText: proxyResponse.statusText,
-            headers: Object.fromEntries(proxyResponse.headers.entries()),
-            body: responseBody,
-            isBase64: isBinary,
-          };
-
-          event.source?.postMessage(
-            {
-              type: "ADAPT_PROXY_RESPONSE",
-              requestId,
-              success: true,
-              data: responseData,
-            },
-            "*",
-          );
-        } catch (error) {
-          console.error("[App] Proxy request failed:", error);
-          event.source?.postMessage(
-            {
-              type: "ADAPT_PROXY_RESPONSE",
-              requestId,
-              success: false,
-              error: String(error),
-            },
-            "*",
-          );
-        }
-        return;
-      }
-
-      const iframe = Object.values(iframesRef.current).find(
-        (f) => f.contentWindow === event.source,
-      );
-      if (!iframe) return;
-
-      if (event.data?.type === "ADAPT_INVOKE") {
-        const { cmd, payload, requestId } = event.data;
-        try {
-          // 找到对应的 appId
-          const entry = Object.entries(iframesRef.current).find(
-            ([_, f]) => f.contentWindow === event.source,
-          );
-          const appId = entry ? entry[0] : null;
-
-          // 为 SQLite 和 KV 命令自动注入 appId/pwaId
-          let finalPayload = payload;
-          if (appId) {
-            if (cmd.startsWith("sqlite_")) {
-              finalPayload = { ...payload, pwaId: appId };
-            } else if (cmd.startsWith("kv_")) {
-              finalPayload = { ...payload, appId: appId };
-            }
-          }
-
-          const result = await invoke(cmd, finalPayload);
-          event.source?.postMessage(
-            {
-              type: "ADAPT_RESULT",
-              cmd,
-              requestId, // 返回 requestId 以便匹配并发请求
-              result: JSON.parse(JSON.stringify(result)),
-            },
-            "*",
-          );
-        } catch (error) {
-          event.source?.postMessage(
-            {
-              type: "ADAPT_RESULT",
-              cmd,
-              requestId, // 返回 requestId 以便匹配并发请求
-              error: String(error),
-            },
-            "*",
-          );
-        }
-      }
-    };
-
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, []);
+  }, [loadApps]);
 
   // 获取应用图标
   const getAppIcon = (appId: string) =>
@@ -496,7 +297,12 @@ function App() {
 
   // 卸载应用
   const handleUninstall = async (appId: string) => {
-    if (!confirm("确定要卸载这个应用吗？")) return;
+    const confirmed = await confirmDialog({
+      title: "卸载应用",
+      message: "确定要卸载这个应用吗？",
+      isDanger: true,
+    });
+    if (!confirmed) return;
 
     try {
       if (runningPwas.find((p) => p.appId === appId)) {
@@ -507,13 +313,9 @@ function App() {
         return rest;
       });
 
-      const response = await invoke<CommandResponse<boolean>>("uninstall_pwa", {
-        appId,
-      });
-      if (response.success) {
-        showMessage("success", "应用已卸载");
-        loadApps();
-      }
+      await uninstallPwa(appId);
+      showMessage("success", "应用已卸载");
+      loadApps();
     } catch (error) {
       showMessage("error", `卸载失败：${error}`);
     }
@@ -535,6 +337,7 @@ function App() {
   };
 
   return (
+    <ConfirmDialogProvider>
     <div className="app">
       {message && (
         <div className={`message ${message.type}`}>{message.text}</div>
@@ -585,8 +388,16 @@ function App() {
                 src={getProxiedUrl(pwa.url)}
                 sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads allow-modals"
                 allow="fullscreen; clipboard-write; autoplay"
+                referrerPolicy="no-referrer"
                 onLoad={() => handleIframeLoad(pwa.appId)}
+                onError={(e) => {
+                  console.error(
+                    `[App] Failed to load iframe for ${pwa.appId}:`,
+                    e,
+                  );
+                }}
                 title={pwa.name}
+                style={{ width: "100%", height: "100%", border: "none" }}
               />
             </div>
           ))}
@@ -727,6 +538,7 @@ function App() {
             openBrowser={openBrowser}
             launchOrSwitchPwa={launchOrSwitchPwa}
             handleUninstall={handleUninstall}
+            onManageData={(app) => setSelectedAppForData(app)}
           />
         )}
       </main>
@@ -740,6 +552,19 @@ function App() {
       <AppSettings
         show={showAppSettings}
         onClose={() => setShowAppSettings(false)}
+        showMessage={showMessage}
+      />
+
+      <DataManager
+        show={showDataManager}
+        onClose={() => setShowDataManager(false)}
+        showMessage={showMessage}
+      />
+
+      <AppDataManager
+        app={selectedAppForData}
+        show={!!selectedAppForData}
+        onClose={() => setSelectedAppForData(null)}
         showMessage={showMessage}
       />
 
@@ -795,6 +620,26 @@ function App() {
           >
             🔧
           </button>
+          <button
+            onClick={() => setShowDataManager(true)}
+            title="数据管理"
+            style={{
+              width: "50px",
+              height: "50px",
+              borderRadius: "50%",
+              border: "none",
+              background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+              color: "white",
+              fontSize: "20px",
+              cursor: "pointer",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            🗑️
+          </button>
         </div>
       )}
 
@@ -805,6 +650,7 @@ function App() {
         </p>
       </footer>
     </div>
+    </ConfirmDialogProvider>
   );
 }
 

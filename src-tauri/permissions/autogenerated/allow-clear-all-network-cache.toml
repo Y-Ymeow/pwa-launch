@@ -1,0 +1,11 @@
+"$schema" = "../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-clear-all-network-cache"
+description = "Enables the clear_all_network_cache command without any pre-configured scope."
+commands.allow = ["clear_all_network_cache"]
+
+[[permission]]
+identifier = "deny-clear-all-network-cache"
+description = "Denies the clear_all_network_cache command without any pre-configured scope."
+commands.deny = ["clear_all_network_cache"]

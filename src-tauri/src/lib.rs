@@ -9,7 +9,6 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_fs::init as fs_plugin;
 use tauri_plugin_http::init as http_plugin;
 use tauri_plugin_shell::init as shell_plugin;
-use tokio::sync::RwLock;
 
 // 全局数据库连接，用于在协议处理器中访问
 // 同时用于：主应用数据、PWA KV 存储、Cookies 等
@@ -52,6 +51,8 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_audioplayer::init())
         .plugin(shell_plugin())
         .plugin(fs_plugin())
@@ -157,26 +158,64 @@ pub fn run() {
             tauri::async_runtime::block_on(async move {
                 let app_data_dir = app.path().app_data_dir()?;
                 std::fs::create_dir_all(&app_data_dir)?;
-                db::init_db(&app_data_dir)?;
-
+                
+                // 初始化主数据库（只包含 apps 表）
                 let db_path = app_data_dir.join("pwa_container.db");
-
-                // 只使用一个数据库连接，避免死锁
-                let mut conn = rusqlite::Connection::open(&db_path)?;
-                // 启用外键支持（级联删除需要）
-                conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-                // 启用 WAL 模式提高并发性能
-                conn.execute_batch("PRAGMA journal_mode = WAL;")?;
+                let conn = rusqlite::Connection::open(&db_path)?;
+                
+                // 创建应用表（主数据库）
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS apps (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        url TEXT NOT NULL,
+                        icon_url TEXT,
+                        manifest_url TEXT,
+                        installed_at INTEGER,
+                        updated_at INTEGER,
+                        start_url TEXT,
+                        scope TEXT,
+                        theme_color TEXT,
+                        background_color TEXT,
+                        display_mode TEXT
+                    )",
+                    [],
+                )?;
+                
+                // 创建全局配置表
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS app_config (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL
+                    )",
+                    [],
+                )?;
+                
+                // 插入默认 User-Agent
+                conn.execute(
+                    "INSERT OR IGNORE INTO app_config (key, value) VALUES ('user_agent', ?1)",
+                    ["Mozilla/5.0 (Linux; Android 13; TECNO BG6 Build/TP1A.220624.014) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.7632.159 Mobile Safari/537.36"],
+                )?;
+                
                 let _ = DB_CONN.set(Mutex::new(conn));
 
-                // 初始化 SQLite KV 表（使用 DB_CONN）
-                commands::sqlite::init_sqlite_kv()?;
-
-                let proxy_settings = Arc::new(RwLock::new(None::<commands::ProxySettings>));
-                app.manage(proxy_settings.clone());
+                // 清理已废弃的 OPFS 数据（如果有）
+                let pwa_data_dir = app_data_dir.join("pwa_data");
+                if let Ok(entries) = std::fs::read_dir(&pwa_data_dir) {
+                    for entry in entries.flatten() {
+                        let opfs_dir = entry.path().join("opfs");
+                        if opfs_dir.exists() {
+                            if let Err(e) = std::fs::remove_dir_all(&opfs_dir) {
+                                log::warn!("[Cleanup] Failed to remove old OPFS dir: {}", e);
+                            } else {
+                                log::info!("[Cleanup] Removed old OPFS data: {:?}", opfs_dir);
+                            }
+                        }
+                    }
+                }
 
                 // 启动本地 HTTP 服务器（Linux/Windows/macOS）
-                local_server::start_local_server(proxy_settings).await;
+                local_server::start_local_server().await;
 
                 // 创建主窗口
                 // dev 模式使用 Vite 端口（有热重载）
@@ -379,75 +418,25 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            commands::install_pwa,
-            commands::uninstall_pwa,
-            commands::list_apps,
-            commands::launch_app,
-            commands::get_app_info,
-            commands::list_running_pwas,
-            commands::update_pwa,
-            commands::close_pwa_window,
             commands::clear_webview_cache,
-            commands::clear_data,
-            commands::backup_data,
-            commands::restore_data,
-            commands::proxy_fetch,
-            commands::get_cookies,
-            commands::set_cookies,
-            commands::clear_cookies,
-            commands::get_cookie_domains,
-            commands::get_all_cookies,
-            commands::set_proxy,
-            commands::get_proxy,
-            commands::disable_proxy,
-            commands::opfs_write_file,
-            commands::opfs_read_file,
-            commands::opfs_delete_file,
-            commands::opfs_list_dir,
             commands::open_file_dialog,
+            commands::resolve_local_file_url,
             commands::read_file_content,
             commands::read_file_range,
-            commands::resolve_local_file_url,
-            commands::sync_webview_cookies,
-            commands::get_proxy_cookies,
-            commands::fs_read_dir,
-            commands::fs_write_file,
-            commands::fs_create_dir,
-            commands::fs_remove,
-            commands::fs_exists,
             commands::check_storage_permission,
             commands::request_storage_permission,
-            commands::kv_set,
-            commands::kv_get,
-            commands::kv_get_all,
-            commands::kv_remove,
             commands::set_keep_screen_on,
             commands::get_keep_screen_on,
-            commands::kv_clear,
-            commands::navigate_to_url,
-            commands::navigate_back,
             commands::get_webview_info,
             commands::reinject_browser_ui,
-            commands::check_browser_ui,
             commands::eval_js,
-            commands::get_app_config,
-            commands::set_app_config,
-            // 持久化缓存 API
-            commands::cache_set,
-            commands::cache_get,
-            commands::cache_delete,
-            commands::cache_list,
-            commands::cache_clear,
-            commands::cache_stats,
-            commands::cache_exists,
-            // SQLite EAV 模型命令
-            commands::sqlite_upsert,
-            commands::sqlite_find,
-            commands::sqlite_delete,
-            commands::sqlite_find_one,
-            commands::sqlite_count,
-            commands::sqlite_clear_table,
-            commands::sqlite_list_tables,
+            // 数据管理命令
+            commands::get_data_usage,
+            commands::get_system_data_info,
+            commands::clear_app_data,
+            commands::clear_all_network_cache,
+            commands::clear_webview_cache_data,
+            commands::format_bytes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

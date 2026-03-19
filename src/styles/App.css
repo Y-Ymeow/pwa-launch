@@ -337,6 +337,15 @@
   background: #fecaca;
 }
 
+.btn-manage-data {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.btn-manage-data:hover {
+  background: #fde68a;
+}
+
 /* 悬浮切换按钮 - 贴边可拖动 */
 .floating-switcher {
   position: fixed;

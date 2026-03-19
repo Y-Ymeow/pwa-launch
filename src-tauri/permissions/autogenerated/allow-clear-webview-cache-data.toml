@@ -1,0 +1,11 @@
+"$schema" = "../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-clear-webview-cache-data"
+description = "Enables the clear_webview_cache_data command without any pre-configured scope."
+commands.allow = ["clear_webview_cache_data"]
+
+[[permission]]
+identifier = "deny-clear-webview-cache-data"
+description = "Denies the clear_webview_cache_data command without any pre-configured scope."
+commands.deny = ["clear_webview_cache_data"]

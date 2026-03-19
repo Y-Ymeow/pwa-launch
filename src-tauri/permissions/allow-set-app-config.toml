@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "allow-set-app-config"
-description = "Allows setting app config values"
-commands.allow = ["set_app_config"]

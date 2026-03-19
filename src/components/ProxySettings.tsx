@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
-import { invoke } from "@tauri-apps/api/core";
-import type { ProxySettings as ProxySettingsType, CommandResponse } from './types';
+import type { ProxySettings as ProxySettingsType } from './types';
+import { kvGet, kvSet } from "../kv";
 
 interface ProxySettingsProps {
   show: boolean;
   onClose: () => void;
   showMessage: (type: "success" | "error", text: string) => void;
 }
+
+const STORE_KEY = "proxy";
 
 export function ProxySettings({ show, onClose, showMessage }: ProxySettingsProps) {
   const [settings, setSettings] = useState<ProxySettingsType>({
@@ -23,18 +25,14 @@ export function ProxySettings({ show, onClose, showMessage }: ProxySettingsProps
   }, []);
 
   const loadSettings = async () => {
-    // 检查是否在 Tauri 环境中
-    if (typeof window.__TAURI_INTERNALS__ === 'undefined') {
-      console.log('不在 Tauri 环境中，跳过加载代理设置');
-      return;
-    }
     try {
-      const response = await invoke<CommandResponse<ProxySettingsType | null>>("get_proxy");
-      if (response.success && response.data) {
+      const proxyJson = await kvGet("proxy", "config");
+      if (proxyJson) {
+        const proxy = JSON.parse(proxyJson) as ProxySettingsType;
         setSettings({
-          ...response.data,
-          username: response.data.username || "",
-          password: response.data.password || "",
+          ...proxy,
+          username: proxy.username || "",
+          password: proxy.password || "",
         });
       }
     } catch (error) {
@@ -43,20 +41,8 @@ export function ProxySettings({ show, onClose, showMessage }: ProxySettingsProps
   };
 
   const saveSettings = async () => {
-    // 检查是否在 Tauri 环境中
-    if (typeof window.__TAURI_INTERNALS__ === 'undefined') {
-      showMessage("error", "请在 Tauri 应用中保存设置");
-      return;
-    }
     try {
-      await invoke("set_proxy", {
-        enabled: settings.enabled,
-        proxyType: settings.proxy_type,
-        host: settings.host,
-        port: settings.port,
-        username: settings.username || null,
-        password: settings.password || null,
-      });
+      await kvSet("proxy", "config", JSON.stringify(settings));
       showMessage("success", "代理设置已保存");
       onClose();
     } catch (error) {
@@ -70,31 +56,7 @@ export function ProxySettings({ show, onClose, showMessage }: ProxySettingsProps
       showMessage("error", "请在 Tauri 应用中测试代理");
       return;
     }
-    try {
-      await invoke("set_proxy", {
-        enabled: settings.enabled,
-        proxyType: settings.proxy_type,
-        host: settings.host,
-        port: settings.port,
-        username: settings.username || null,
-        password: settings.password || null,
-      });
-
-      const response = await invoke<CommandResponse<{ status: number }>>("proxy_fetch", {
-        url: "http://httpbin.org/ip",
-        method: "GET",
-        headers: {},
-        body: null,
-      });
-
-      if (response.success) {
-        showMessage("success", `代理测试成功！状态码: ${response.data?.status}`);
-      } else {
-        showMessage("error", "代理测试失败");
-      }
-    } catch (error) {
-      showMessage("error", `代理测试失败：${error}`);
-    }
+    showMessage("info", "代理测试功能暂未实现，请保存后使用");
   };
 
   if (!show) return null;

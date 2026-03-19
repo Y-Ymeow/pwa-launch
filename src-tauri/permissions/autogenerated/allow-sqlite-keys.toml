@@ -1,6 +1,0 @@
-"$schema" = "../schema.json"
-
-[[permission]]
-identifier = "allow-sqlite-keys"
-description = "Allows listing all keys in SQLite storage"
-commands.allow = ["sqlite_keys"]

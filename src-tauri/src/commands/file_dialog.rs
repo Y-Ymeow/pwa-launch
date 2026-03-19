@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use tauri::Manager;
 use tauri_plugin_fs::FsExt;
+use base64::Engine as _;
 
 use super::CommandResponse;
 
@@ -142,103 +143,6 @@ fn copy_content_uri_to_cache(app: &tauri::AppHandle, uri_str: &str) -> Result<St
 }
 
 #[tauri::command]
-pub async fn read_file_content(
-    app: tauri::AppHandle,
-    path: String,
-) -> Result<CommandResponse<serde_json::Value>, String> {
-    log::info!("read_file_content: {}", path);
-
-    let (content, name, size, mime_type): (Vec<u8>, String, u64, String);
-
-    #[cfg(target_os = "android")]
-    {
-        // Android: 使用 tauri_plugin_fs 读取 content:// URI
-        if path.starts_with("content://") {
-            use tauri_plugin_fs::FsExt;
-            let fs_ext = app.fs();
-            // 将 content:// URI 转换为 tauri::Url，再转为 FilePath
-            let url = tauri::Url::parse(&path)
-                .map_err(|e| format!("无效的 URI: {}", e))?;
-            content = fs_ext
-                .read(url)
-                .map_err(|e| format!("读取文件失败：{}", e))?;
-            
-            // 从 URL 提取文件名
-            name = path
-                .split('/')
-                .last()
-                .unwrap_or("unknown")
-                .to_string();
-            size = content.len() as u64;
-        } else {
-            // 普通路径
-            let path_buf = PathBuf::from(&path);
-            if !path_buf.exists() {
-                return Err("文件不存在".to_string());
-            }
-            content = std::fs::read(&path_buf).map_err(|e| format!("读取文件失败：{}", e))?;
-            name = path_buf
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown")
-                .to_string();
-            size = content.len() as u64;
-        }
-    }
-
-    #[cfg(not(target_os = "android"))]
-    {
-        // Linux/Desktop: 直接使用 std::fs
-        let path_buf = PathBuf::from(&path);
-        if !path_buf.exists() {
-            return Err("文件不存在".to_string());
-        }
-        let metadata = std::fs::metadata(&path_buf)
-            .map_err(|e| format!("读取文件信息失败：{}", e))?;
-        content = std::fs::read(&path_buf).map_err(|e| format!("读取文件失败：{}", e))?;
-        name = path_buf
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string();
-        size = metadata.len();
-    }
-
-    use base64::Engine;
-    let base64_content = base64::engine::general_purpose::STANDARD.encode(&content);
-
-    // 从文件名或路径提取扩展名
-    let ext = name
-        .split('.')
-        .last()
-        .unwrap_or("")
-        .to_lowercase();
-
-    mime_type = match ext.as_str() {
-        "mp3" => "audio/mpeg",
-        "flac" => "audio/flac",
-        "wav" => "audio/wav",
-        "ogg" => "audio/ogg",
-        "m4a" => "audio/mp4",
-        "aac" => "audio/aac",
-        "wma" => "audio/x-ms-wma",
-        "lrc" => "text/plain",
-        _ => "application/octet-stream",
-    }
-    .to_string();
-
-    log::info!("read_file_content: {} ({} bytes)", name, size);
-
-    Ok(CommandResponse::success(serde_json::json!({
-        "name": name,
-        "path": path,
-        "size": size,
-        "mimeType": mime_type,
-        "content": base64_content,
-    })))
-}
-
-#[tauri::command]
 pub async fn resolve_local_file_url(path: String) -> Result<CommandResponse<String>, String> {
     log::info!("resolve_local_file_url: {}", path);
 
@@ -251,103 +155,104 @@ pub async fn resolve_local_file_url(path: String) -> Result<CommandResponse<Stri
     Ok(CommandResponse::success(url))
 }
 
-/// 读取文件指定范围的内容（用于获取元数据）
+/// 读取文件内容（返回 Base64）
+#[tauri::command]
+pub async fn read_file_content(path: String) -> Result<CommandResponse<FileContentResponse>, String> {
+    use std::fs;
+    use std::path::Path;
+    
+    log::info!("read_file_content: {}", path);
+    
+    let path_obj = Path::new(&path);
+    let name = path_obj.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    
+    // 检测 MIME 类型
+    let mime_type = mime_guess::from_path(&path)
+        .first_or_octet_stream()
+        .to_string();
+    
+    // 读取文件内容
+    let content = fs::read(&path).map_err(|e| format!("读取文件失败: {}", e))?;
+    let size = content.len() as u64;
+    
+    // Base64 编码
+    let content_b64 = base64::engine::general_purpose::STANDARD.encode(&content);
+    
+    log::info!("read_file_content success: {} bytes", size);
+    
+    Ok(CommandResponse::success(FileContentResponse {
+        name,
+        path,
+        size,
+        mime_type,
+        content: content_b64,
+    }))
+}
+
+/// 读取文件范围（用于大文件分段读取）
 #[tauri::command]
 pub async fn read_file_range(
-    app: tauri::AppHandle,
-    path: String,
-    offset: u64,
-    length: u64,
-) -> Result<CommandResponse<serde_json::Value>, String> {
-    log::info!("read_file_range: {} offset={} length={}", path, offset, length);
-
-    #[cfg(target_os = "android")]
-    {
-        // Android: content:// URI 不支持随机访问，需要读取整个文件
-        if path.starts_with("content://") {
-            use tauri_plugin_fs::FsExt;
-            let fs_ext = app.fs();
-            let url = tauri::Url::parse(&path)
-                .map_err(|e| format!("无效的 URI: {}", e))?;
-            let full_content = fs_ext
-                .read(url)
-                .map_err(|e| format!("读取文件失败：{}", e))?;
-
-            let file_size = full_content.len() as u64;
-            let actual_offset = offset.min(file_size);
-            let max_length = file_size - actual_offset;
-            let actual_length = length.min(max_length).min(10 * 1024 * 1024) as usize;
-
-            let end = (actual_offset as usize + actual_length).min(full_content.len());
-            let buffer = full_content[actual_offset as usize..end].to_vec();
-
-            use base64::Engine;
-            let base64_content = base64::engine::general_purpose::STANDARD.encode(&buffer);
-
-            let name = path
-                .split('/')
-                .last()
-                .unwrap_or("unknown")
-                .to_string();
-
-            log::info!("read_file_range: {} read {} bytes", name, buffer.len());
-
-            return Ok(CommandResponse::success(serde_json::json!({
-                "name": name,
-                "path": path,
-                "size": file_size,
-                "offset": actual_offset,
-                "length": buffer.len(),
-                "content": base64_content,
-            })));
-        }
-    }
-
-    // Desktop: 使用标准文件操作
+    path: String, 
+    offset: u64, 
+    length: u64
+) -> Result<CommandResponse<FileRangeResponse>, String> {
     use std::fs::File;
     use std::io::{Read, Seek, SeekFrom};
-
-    let path_buf = PathBuf::from(&path);
-    if !path_buf.exists() {
-        return Err("文件不存在".to_string());
-    }
-
-    let mut file = File::open(&path_buf).map_err(|e| format!("打开文件失败：{}", e))?;
-    let file_size = file
-        .metadata()
-        .map_err(|e| format!("获取文件信息失败：{}", e))?
-        .len();
-
-    let actual_offset = offset.min(file_size);
-    let max_length = file_size - actual_offset;
-    let actual_length = length.min(max_length).min(10 * 1024 * 1024);
-
-    file.seek(SeekFrom::Start(actual_offset))
-        .map_err(|e| format!("定位文件失败：{}", e))?;
-
-    let mut buffer = vec![0u8; actual_length as usize];
-    let bytes_read = file
-        .read(&mut buffer)
-        .map_err(|e| format!("读取文件失败：{}", e))?;
+    use std::path::Path;
+    
+    log::info!("read_file_range: {} offset={} length={}", path, offset, length);
+    
+    let path_obj = Path::new(&path);
+    let name = path_obj.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    
+    // 获取文件大小
+    let metadata = std::fs::metadata(&path).map_err(|e| format!("获取文件元数据失败: {}", e))?;
+    let file_size = metadata.len();
+    
+    // 打开文件并定位
+    let mut file = File::open(&path).map_err(|e| format!("打开文件失败: {}", e))?;
+    file.seek(SeekFrom::Start(offset)).map_err(|e| format!("定位文件失败: {}", e))?;
+    
+    // 读取指定范围
+    let read_length = std::cmp::min(length, file_size - offset);
+    let mut buffer = vec![0u8; read_length as usize];
+    let bytes_read = file.read(&mut buffer).map_err(|e| format!("读取文件失败: {}", e))?;
     buffer.truncate(bytes_read);
+    
+    // Base64 编码
+    let content_b64 = base64::engine::general_purpose::STANDARD.encode(&buffer);
+    
+    log::info!("read_file_range success: {} bytes read", bytes_read);
+    
+    Ok(CommandResponse::success(FileRangeResponse {
+        name,
+        path: path.clone(),
+        size: file_size,
+        offset,
+        length: bytes_read as u64,
+        content: content_b64,
+    }))
+}
 
-    use base64::Engine;
-    let base64_content = base64::engine::general_purpose::STANDARD.encode(&buffer);
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct FileContentResponse {
+    pub name: String,
+    pub path: String,
+    pub size: u64,
+    pub mime_type: String,
+    pub content: String, // Base64
+}
 
-    let name = path_buf
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
-        .to_string();
-
-    log::info!("read_file_range: {} read {} bytes", name, bytes_read);
-
-    Ok(CommandResponse::success(serde_json::json!({
-        "name": name,
-        "path": path,
-        "size": file_size,
-        "offset": actual_offset,
-        "length": bytes_read,
-        "content": base64_content,
-    })))
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct FileRangeResponse {
+    pub name: String,
+    pub path: String,
+    pub size: u64,
+    pub offset: u64,
+    pub length: u64,
+    pub content: String, // Base64
 }

@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "allow-kv-get"
-description = "Allows getting a KV store entry"
-commands.allow = ["kv_get"]

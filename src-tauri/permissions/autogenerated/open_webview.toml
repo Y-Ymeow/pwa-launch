@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "allow-open-webview"
-description = "Allows opening a webview"
-commands.allow = ["open_webview"]

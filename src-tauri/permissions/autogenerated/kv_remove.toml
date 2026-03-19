@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "allow-kv-remove"
-description = "Allows removing a KV store entry"
-commands.allow = ["kv_remove"]

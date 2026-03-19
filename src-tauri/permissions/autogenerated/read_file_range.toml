@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "allow-read-file-range"
-description = "Allows reading a specific range of bytes from a file"
-commands.allow = ["read_file_range"]

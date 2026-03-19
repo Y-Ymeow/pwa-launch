@@ -1,15 +1,11 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
 use tokio::time::sleep;
 use warp::{Filter, Reply};
 use warp::http::Response;
 use warp::hyper::Body;
 use serde::Deserialize;
-
-use crate::commands::ProxySettings;
 
 const LOCAL_SERVER_PORT: u16 = 19315;
 
@@ -20,13 +16,9 @@ struct ProxyRequest {
     // 使用 serde_json::Value 来接受任意类型的 header 值（前端可能发送数字、布尔等）
     headers: Option<HashMap<String, serde_json::Value>>,
     body: Option<String>,
-    #[serde(default)]
-    is_xhr: bool,
 }
 
-pub async fn start_local_server(
-    _proxy_settings: Arc<RwLock<Option<ProxySettings>>>,
-) {
+pub async fn start_local_server() {
     // API 代理路由 - 普通请求，启用 gzip
     // POST 方式供前端 JS 使用
     let proxy_route_post = warp::path!("api" / "proxy")
@@ -98,7 +90,6 @@ pub async fn start_local_server(
                 method: Some("GET".to_string()),
                 headers: if custom_headers.is_empty() { None } else { Some(custom_headers) },
                 body: None,
-                is_xhr: false,
             };
             let result = handle_proxy_request(req, headers, false).await;
             Ok::<Box<dyn Reply>, Infallible>(Box::new(result))
@@ -159,7 +150,6 @@ pub async fn start_local_server(
                 method: Some("GET".to_string()),
                 headers: if custom_headers.is_empty() { None } else { Some(custom_headers) },
                 body: None,
-                is_xhr: false,
             };
             let result = handle_proxy_request(req, headers, true).await;
             Ok::<Box<dyn Reply>, Infallible>(Box::new(result))
@@ -722,12 +712,13 @@ async fn handle_static_file(path: &str, original_headers: warp::http::HeaderMap)
     }
 }
 
-/// 处理本地文件请求，支持 Range 请求
+/// 处理本地文件请求，支持 Range 请求，使用流式传输避免内存占用
 async fn handle_local_file(
     path: &str,
     headers: warp::http::HeaderMap,
 ) -> Result<impl Reply, Infallible> {
-    use std::io::{Read, Seek, SeekFrom};
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    use tokio_util::io::ReaderStream;
 
     // URL 解码
     let decoded_path = match urlencoding::decode(path) {
@@ -742,11 +733,11 @@ async fn handle_local_file(
         }
     };
 
-    log::info!("[LocalServer] Serving local file: {}", decoded_path);
+    log::info!("[LocalServer] Serving local file (streaming): {}", decoded_path);
 
-    // 获取文件元数据
-    let metadata = match std::fs::metadata(&decoded_path) {
-        Ok(m) => m,
+    // 异步打开文件
+    let mut file = match tokio::fs::File::open(&decoded_path).await {
+        Ok(f) => f,
         Err(e) => {
             log::error!("[LocalServer] File not found: {}", e);
             return Ok(Response::builder()
@@ -754,6 +745,20 @@ async fn handle_local_file(
                 .header("Content-Type", "text/plain")
                 .header("Access-Control-Allow-Origin", "*")
                 .body(Body::from(format!("File not found: {}", e)))
+                .unwrap());
+        }
+    };
+
+    // 异步获取文件元数据
+    let metadata = match file.metadata().await {
+        Ok(m) => m,
+        Err(e) => {
+            log::error!("[LocalServer] Failed to get metadata: {}", e);
+            return Ok(Response::builder()
+                .status(500)
+                .header("Content-Type", "text/plain")
+                .header("Access-Control-Allow-Origin", "*")
+                .body(Body::from(format!("Failed to get metadata: {}", e)))
                 .unwrap());
         }
     };
@@ -809,58 +814,51 @@ async fn handle_local_file(
                 if start <= end && start < file_size {
                     let length = end - start + 1;
 
-                    match std::fs::File::open(&decoded_path) {
-                        Ok(mut file) => {
-                            if file.seek(SeekFrom::Start(start)).is_ok() {
-                                let mut buffer = vec![0u8; length as usize];
-                                if file.read_exact(&mut buffer).is_ok() {
-                                    let response = Response::builder()
-                                        .status(206)
-                                        .header("Content-Type", mime_type)
-                                        .header("Content-Length", length)
-                                        .header("Content-Range", format!("bytes {}-{}/{}", start, end, file_size))
-                                        .header("Accept-Ranges", "bytes")
-                                        .header("Access-Control-Allow-Origin", "*")
-                                        .header("Cross-Origin-Resource-Policy", "cross-origin")
-                                        .body(Body::from(buffer))
-                                        .unwrap();
-                                    return Ok(response);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            log::error!("[LocalServer] Failed to open file: {}", e);
-                        }
+                    // 异步 seek
+                    if let Err(e) = file.seek(std::io::SeekFrom::Start(start)).await {
+                        log::error!("[LocalServer] Failed to seek file: {}", e);
+                        return Ok(Response::builder()
+                            .status(500)
+                            .header("Content-Type", "text/plain")
+                            .header("Access-Control-Allow-Origin", "*")
+                            .body(Body::from(format!("Seek failed: {}", e)))
+                            .unwrap());
                     }
+
+                    // 使用 take 限制读取长度，并转换为流
+                    let limited_file = file.take(length);
+                    let stream = ReaderStream::new(limited_file);
+
+                    let response = Response::builder()
+                        .status(206)
+                        .header("Content-Type", mime_type)
+                        .header("Content-Length", length)
+                        .header("Content-Range", format!("bytes {}-{}/{}", start, end, file_size))
+                        .header("Accept-Ranges", "bytes")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Cross-Origin-Resource-Policy", "cross-origin")
+                        .body(Body::wrap_stream(stream))
+                        .unwrap();
+                    return Ok(response);
                 }
             }
         }
     }
 
-    // 无 Range 请求，返回整个文件
-    match std::fs::read(&decoded_path) {
-        Ok(data) => {
-            let response = Response::builder()
-                .status(200)
-                .header("Content-Type", mime_type)
-                .header("Content-Length", data.len())
-                .header("Accept-Ranges", "bytes")
-                .header("Access-Control-Allow-Origin", "*")
-                .header("Cross-Origin-Resource-Policy", "cross-origin")
-                .body(Body::from(data))
-                .unwrap();
-            Ok(response)
-        }
-        Err(e) => {
-            log::error!("[LocalServer] Failed to read file: {}", e);
-            Ok(Response::builder()
-                .status(500)
-                .header("Content-Type", "text/plain")
-                .header("Access-Control-Allow-Origin", "*")
-                .body(Body::from(format!("Read failed: {}", e)))
-                .unwrap())
-        }
-    }
+    // 无 Range 请求，使用流式传输整个文件
+    log::info!("[LocalServer] Streaming entire file ({} bytes)", file_size);
+    let stream = ReaderStream::new(file);
+
+    let response = Response::builder()
+        .status(200)
+        .header("Content-Type", mime_type)
+        .header("Content-Length", file_size)
+        .header("Accept-Ranges", "bytes")
+        .header("Access-Control-Allow-Origin", "*")
+        .header("Cross-Origin-Resource-Policy", "cross-origin")
+        .body(Body::wrap_stream(stream))
+        .unwrap();
+    Ok(response)
 }
 
 // 获取本地服务器端口

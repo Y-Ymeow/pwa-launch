@@ -1,8 +1,7 @@
 use chrono::Utc;
-use tauri::{Manager, State};
+use tauri::Manager;
 
 use super::get_app_data_dir;
-use crate::db::DbConnection;
 use crate::models::{BackupInfo, CommandResponse};
 use crate::utils::{calculate_dir_size, generate_app_id, now_timestamp};
 
@@ -42,7 +41,6 @@ pub fn clear_data(app_id: String, app: tauri::AppHandle) -> Result<CommandRespon
 pub fn backup_data(
     app_id: String,
     app: tauri::AppHandle,
-    db: State<'_, DbConnection>,
 ) -> Result<CommandResponse<BackupInfo>, String> {
     let app_data_dir = app
         .path()
@@ -62,12 +60,25 @@ pub fn backup_data(
 
     let backup_id = generate_app_id();
 
-    let conn = db
-        .inner()
+    let conn = crate::DB_CONN.get()
+        .ok_or("DB not initialized")?
         .lock()
         .map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
+    
+    // 创建 backups 表（如果不存在）
     conn.execute(
-        "INSERT INTO backups (id, app_id, backup_path, created_at, size_bytes) VALUES (?, ?, ?, ?, ?)",
+        "CREATE TABLE IF NOT EXISTS backups (
+            id TEXT PRIMARY KEY,
+            app_id TEXT NOT NULL,
+            backup_path TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            size INTEGER NOT NULL
+        )",
+        [],
+    ).map_err(|e| format!("创建备份表失败：{}", e))?;
+    
+    conn.execute(
+        "INSERT INTO backups (id, app_id, backup_path, created_at, size) VALUES (?, ?, ?, ?, ?)",
         [
             backup_id.clone(),
             app_id.clone(),
@@ -81,7 +92,7 @@ pub fn backup_data(
     let app_name: String = conn
         .query_row(
             "SELECT name FROM apps WHERE id = ?",
-            [app_id.clone()],
+            [&app_id],
             |row: &rusqlite::Row| row.get(0),
         )
         .unwrap_or_else(|_| "未知应用".to_string());
@@ -104,17 +115,16 @@ pub fn backup_data(
 pub fn restore_data(
     backup_id: String,
     _app: tauri::AppHandle,
-    db: State<'_, DbConnection>,
 ) -> Result<CommandResponse<bool>, String> {
-    let conn = db
-        .inner()
+    let conn = crate::DB_CONN.get()
+        .ok_or("DB not initialized")?
         .lock()
         .map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
 
     let _backup_path: String = conn
         .query_row(
             "SELECT backup_path FROM backups WHERE id = ?",
-            [backup_id.clone()],
+            [&backup_id],
             |row: &rusqlite::Row| row.get(0),
         )
         .map_err(|e| format!("未找到备份：{}", e))?;

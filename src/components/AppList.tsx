@@ -1,12 +1,11 @@
 import { useState, FormEvent } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import type {
   AppInfo,
   RunningPwa,
   PwaSnapshot,
-  CommandResponse,
   ViewMode,
 } from "./types";
+import { installPwa } from "../pwa";
 
 interface AppListProps {
   apps: AppInfo[];
@@ -18,6 +17,7 @@ interface AppListProps {
   openBrowser: () => void;
   launchOrSwitchPwa: (app: AppInfo) => void;
   handleUninstall: (appId: string) => void;
+  onManageData: (app: AppInfo) => void;
 }
 
 export function AppList({
@@ -30,6 +30,7 @@ export function AppList({
   openBrowser,
   launchOrSwitchPwa,
   handleUninstall,
+  onManageData,
 }: AppListProps) {
   const [installUrl, setInstallUrl] = useState("");
   const [installing, setInstalling] = useState(false);
@@ -40,17 +41,10 @@ export function AppList({
 
     setInstalling(true);
     try {
-      const response = await invoke<CommandResponse<AppInfo>>("install_pwa", {
-        request: { url: installUrl.trim() },
-      });
-
-      if (response.success && response.data) {
-        showMessage("success", `应用 "${response.data.name}" 安装成功！`);
-        setInstallUrl("");
-        loadApps();
-      } else {
-        showMessage("error", response.error || "安装失败");
-      }
+      const appInfo = await installPwa(installUrl.trim());
+      showMessage("success", `应用 "${appInfo.name}" 安装成功！`);
+      setInstallUrl("");
+      loadApps();
     } catch (error) {
       showMessage("error", `安装失败：${String(error)}`);
     } finally {
@@ -157,6 +151,13 @@ export function AppList({
                         : hasSnapshot
                           ? "▶️ 恢复"
                           : "🚀 启动"}
+                    </button>
+                    <button
+                      className="btn-manage-data"
+                      onClick={() => onManageData(app)}
+                      title="管理应用数据"
+                    >
+                      🗑️ 数据
                     </button>
                     <button
                       className="btn-danger"

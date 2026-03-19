@@ -1,6 +1,6 @@
 [package]
 name = "pwa_container"
-version = "1.2.0"
+version = "1.3.0"
 description = "PWA 安装容器 - 跨平台应用容器，支持 PC 和移动端"
 authors = ["you"]
 edition = "2021"
@@ -17,6 +17,8 @@ tauri = { version = "2", features = ["protocol-asset", "unstable", "devtools"] }
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-http = { version = "2", features = ["unsafe-headers"] }
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+tauri-plugin-store = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
@@ -34,6 +36,7 @@ cookie = "0.18"
 urlencoding = "2"
 http = "1"
 base64 = "0.22"
+mime_guess = "2"
 tauri-plugin-os = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-audioplayer = { path = "../tauri-plugin-audioplayer" }
@@ -47,6 +50,7 @@ jni = { version = "0.21" }
 ndk-context = { version = "0.1" }
 warp = "0.3"
 tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["io"] }
 bytes = "1"
 lazy_static = "1.5.0"
 

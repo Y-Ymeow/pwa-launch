@@ -1,9 +1,0 @@
-[[permission]]
-identifier = "allow-get-proxy-cookies"
-description = "Enables the get_proxy_cookies command without any pre-configured scope."
-commands.allow = ["get_proxy_cookies"]
-
-[[permission]]
-identifier = "deny-get-proxy-cookies"
-description = "Denies the get_proxy_cookies command without any pre-configured scope."
-commands.deny = ["get_proxy_cookies"]

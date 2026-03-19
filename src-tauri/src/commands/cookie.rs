@@ -1,7 +1,4 @@
-use std::collections::HashMap;
-use tauri::State;
-
-use super::{extract_domain, CommandResponse, ProxyConfig, ProxySettings};
+use super::{extract_domain, CommandResponse};
 
 /// 读取 Cookie - 直接查数据库
 #[tauri::command]
@@ -109,135 +106,6 @@ pub async fn clear_cookies(
     Ok(CommandResponse::success(true))
 }
 
-/// 获取所有有 cookies 的域名列表
-#[tauri::command]
-pub async fn get_cookie_domains() -> Result<CommandResponse<Vec<String>>, String> {
-    let conn = if let Some(db_mutex) = crate::DB_CONN.get() {
-        db_mutex.lock().map_err(|e| e.to_string())?
-    } else {
-        return Err("DB not initialized".to_string());
-    };
-    
-    match crate::db::get_cookie_domains(&conn) {
-        Ok(domains) => {
-            log::info!("[Cookies] Found {} domains", domains.len());
-            Ok(CommandResponse::success(domains))
-        }
-        Err(e) => Err(format!("查询失败: {}", e)),
-    }
-}
-
-/// 获取指定 app 的所有 Cookie（直接从数据库查询）
-#[tauri::command]
-pub async fn get_all_cookies(
-    app_id: String,
-) -> Result<CommandResponse<HashMap<String, HashMap<String, String>>>, String> {
-    // 使用全局 DB_CONN
-    let conn = if let Some(db_mutex) = crate::DB_CONN.get() {
-        db_mutex.lock().map_err(|e| e.to_string())?
-    } else {
-        return Err("DB not initialized".to_string());
-    };
-    
-    let mut result: HashMap<String, HashMap<String, String>> = HashMap::new();
-    let mut stmt = conn.prepare(
-        "SELECT domain, name, value FROM cookies WHERE app_id = ?1"
-    ).map_err(|e| e.to_string())?;
-    
-    let rows = stmt.query_map(rusqlite::params![app_id], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-        ))
-    }).map_err(|e| e.to_string())?;
-    
-    for row in rows {
-        let (domain, name, value) = row.map_err(|e| e.to_string())?;
-        let domain_cookies = result.entry(domain).or_insert_with(HashMap::new);
-        domain_cookies.insert(name, value);
-    }
-    
-    Ok(CommandResponse::success(result))
-}
-
-/// 设置代理
-#[tauri::command]
-pub async fn set_proxy(
-    enabled: bool,
-    proxy_type: super::ProxyType,
-    host: String,
-    port: u16,
-    username: Option<String>,
-    password: Option<String>,
-    proxy_config: State<'_, ProxyConfig>,
-) -> Result<CommandResponse<bool>, String> {
-    let proxy_settings = ProxySettings {
-        enabled,
-        proxy_type: proxy_type.clone(),
-        host: host.clone(),
-        port,
-        username: username.clone(),
-        password: password.clone(),
-    };
-
-    // 更新全局配置
-    let mut config = proxy_config.write().await;
-    *config = Some(proxy_settings.clone());
-    drop(config);
-
-    // 设置环境变量供 static_protocol 使用（同步上下文无法访问 State）
-    if enabled {
-        let proxy_url = proxy_settings.get_proxy_url();
-        std::env::set_var("PWA_PROXY_URL", &proxy_url);
-        log::info!("设置代理环境变量: {}", proxy_url);
-    } else {
-        std::env::remove_var("PWA_PROXY_URL");
-        log::info!("清除代理环境变量");
-    }
-
-    // 持久化到数据库
-    if let Some(db_mutex) = crate::DB_CONN.get() {
-        if let Ok(conn) = db_mutex.lock() {
-            let _ = crate::db::set_config(&conn, "proxy_enabled", &enabled.to_string());
-            let _ = crate::db::set_config(&conn, "proxy_type", &format!("{:?}", proxy_type).to_lowercase());
-            let _ = crate::db::set_config(&conn, "proxy_host", &host);
-            let _ = crate::db::set_config(&conn, "proxy_port", &port.to_string());
-            if let Some(ref u) = username {
-                let _ = crate::db::set_config(&conn, "proxy_username", u);
-            }
-            if let Some(ref p) = password {
-                let _ = crate::db::set_config(&conn, "proxy_password", p);
-            }
-        }
-    }
-
-    log::info!("设置代理：{:?}", proxy_settings);
-    Ok(CommandResponse::success(true))
-}
-
-/// 获取代理设置
-#[tauri::command]
-pub async fn get_proxy(
-    proxy_config: State<'_, ProxyConfig>,
-) -> Result<CommandResponse<Option<ProxySettings>>, String> {
-    let config = proxy_config.read().await;
-    Ok(CommandResponse::success(config.clone()))
-}
-
-/// 禁用代理
-#[tauri::command]
-pub async fn disable_proxy(
-    proxy_config: State<'_, ProxyConfig>,
-) -> Result<CommandResponse<bool>, String> {
-    let mut config = proxy_config.write().await;
-    if let Some(ref mut settings) = *config {
-        settings.enabled = false;
-        log::info!("禁用代理");
-    }
-    Ok(CommandResponse::success(true))
-}
-
 /// 从指定 WebView 获取 Cookies（包括 HttpOnly）
 #[tauri::command]
 pub fn get_webview_cookies(
@@ -294,15 +162,6 @@ pub async fn sync_webview_cookies(
 
     log::info!("WebView Cookies 同步完成: {} 个 cookies", count);
     Ok(CommandResponse::success(true))
-}
-
-/// 从代理服务器获取 Cookies（已废弃，本地服务器已移除）
-#[tauri::command]
-pub async fn get_proxy_cookies(
-    _domain: Option<String>,
-) -> Result<CommandResponse<serde_json::Value>, String> {
-    // 本地服务器已移除，此命令不再使用
-    Ok(CommandResponse::success(serde_json::json!({})))
 }
 
 /// 使用 JNI 从 Android WebView 获取 Cookies（包括 HttpOnly）

@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "allow-fs-remove"
-description = "Allows removing a file or directory"
-commands.allow = ["fs_remove"]

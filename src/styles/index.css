@@ -65,7 +65,7 @@ body {
   right: 1rem;
   padding: 1rem 1.5rem;
   border-radius: 8px;
-  z-index: 1000;
+  z-index: 10000000000;
   animation: slideIn 0.3s ease;
 }
 
